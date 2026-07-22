@@ -144,6 +144,20 @@ describe('StockDetailsModal', () => {
     )
   })
 
+  it('keeps the modal history request synchronized with the selected range', async () => {
+    render(<ModalHarness />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Abrir' }))
+    await userEvent.click(screen.getByRole('button', { name: '1Y' }))
+
+    expect(historyMocks.useStockHistory).toHaveBeenLastCalledWith(
+      'GGAL',
+      '1Y',
+      undefined,
+      { enabled: true }
+    )
+  })
+
   it('shows the metric fallback when nominal volume is unavailable', async () => {
     render(
       <StockDetailsModal
