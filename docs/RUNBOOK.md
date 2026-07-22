@@ -97,8 +97,18 @@ HTTPS in production and in normal live deployments, permits a normalized base
 pathname, and rejects credentials, query strings, and fragments. Redis REST
 requires an HTTPS origin in production and rejects pathnames as well. Outside
 production, HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1`.
+`TOKEN_ENDPOINT`, `PANEL_LIDER_ENDPOINT`, `PANEL_GENERAL_ENDPOINT`, and
+`PANEL_CEDEARS_ENDPOINT` accept only non-empty relative paths. Absolute and
+protocol-relative URLs, query strings, fragments, backslashes, control
+characters, `.`/`..`, encoded traversal, and encoded separators are rejected.
+Paths are appended below `API_URL`'s base pathname, then checked for the exact
+same origin and base-path containment before OAuth credentials or bearer tokens
+are obtained. Secret-bearing fetches reject redirects.
+
 An insecure required Redis URL makes readiness `not-ready` without sending a
-request. An invalid live `API_URL` makes `/api/health` degraded.
+request. An invalid live `API_URL` or upstream endpoint makes `/api/health`
+degraded; `invalidLiveConfig` contains only variable names, and health never
+calls the provider to validate configuration.
 
 Controlled test inputs are optional and must not contain secrets:
 
@@ -146,6 +156,14 @@ dates with “last valid payload row wins”, and finally sorts ascending.
 `totalPoints` is always the final unique `data.length`; `discardedPoints`
 includes invalid upstream rows and valid duplicate rows that do not reach the
 response.
+
+Historical freshness has an explicit invariant: `fresh` and `memory-cache`
+require `meta.stale: false`, while stale fallback is `cacheStatus: stale` with
+`meta.stale: true`. Metrics therefore distinguish a normal memory hit from a
+stale fallback. When the UI changes symbol, market, or range, it clears the
+previous points and statistics and shows the active request state until a
+response with the same identity arrives; late responses for older keys remain
+isolated in their own SWR cache entry.
 
 ## Request ID Correlation
 
@@ -261,6 +279,8 @@ Operational notes:
 - fan-out concurrency is limited by `FAVORITES_QUOTE_CONCURRENCY`
 - default concurrency is `4`
 - valid configured range is `1-10`
+- only complete decimal integers are accepted; malformed values such as
+  `4workers`, `4.5`, `0x4`, or `1e1` use the default
 - lower values reduce upstream burst pressure at the cost of higher batch latency
 - cache hits and in-flight dedupe still apply before extra upstream work
 - partial upstream-budget exhaustion preserves completed rows and records the
@@ -353,6 +373,13 @@ Quote detail:
 - persistent `401`/`403` and other non-recoverable upstream `4xx` responses do
   not use stale fallback
 - the public request rate limiter remains fail-closed before the quote service
+
+History:
+
+- fresh upstream data returns `cacheStatus: fresh` and `meta.stale: false`
+- a valid memory hit returns `cacheStatus: memory-cache` and `meta.stale: false`
+- a recoverable failure inside the stale window returns `cacheStatus: stale`
+  and `meta.stale: true`; expired entries are not served
 
 History:
 

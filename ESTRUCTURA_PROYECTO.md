@@ -54,7 +54,9 @@ variables, demo/live mode, and portfolio positioning, start with
 - `src/features/dashboard/stock-detail/`
   - Detail modal/page, quote and history clients/hooks, current quote
     resolution, quote/history synchronization, live-session candle handling,
-    and presentational detail sections.
+    and presentational detail sections. History responses retain
+    symbol/market/range identity; previous request data is not displayed under
+    a new selection.
 - `src/features/dashboard/charts/`
   - Chart components, chart theme, and historical price calculations.
 - `src/features/dashboard/shared/`
@@ -94,7 +96,8 @@ shared row/formatting utilities stay reusable across the dashboard.
     summary.
 - `src/lib/server/core/serverUrl.ts`
   - Shared absolute HTTP(S) URL validation for public and secret-bearing
-    server endpoints.
+    server endpoints, plus strict upstream-relative-path normalization and
+    same-origin/base-path URL construction.
 - `src/lib/server/core/httpResponse.ts`
   - Shared JSON response helper for route handlers.
 - `src/lib/server/core/rateLimit.ts`
@@ -127,7 +130,8 @@ shared row/formatting utilities stay reusable across the dashboard.
 - `e2e/`
   - Playwright dashboard and SSR boot tests.
 - `vitest.config.ts`
-  - Vitest configuration.
+  - Vitest configuration, V8 coverage, global thresholds, and critical-module
+    non-regression thresholds.
 - `playwright.config.ts`
   - Playwright configuration.
 - `scripts/run-e2e.mjs`
@@ -135,7 +139,8 @@ shared row/formatting utilities stay reusable across the dashboard.
 - `scripts/run-e2e-suite.mjs`
   - SSR and interactive E2E suite runner.
 - `.github/workflows/ci.yml`
-  - CI validation in demo mode.
+  - Least-privilege, SHA-pinned CI in demo mode: `quality`, `build`, and `e2e`
+    jobs with concurrency cancellation and per-job timeouts.
 
 ## Architecture Rules
 

@@ -61,6 +61,7 @@ Validación completa:
 ```bash
 npm run validate:local
 npm run validate
+npm run test:coverage
 ```
 
 Notas:
@@ -69,6 +70,7 @@ Notas:
 - `validate` corre `validate:local` y luego `test:e2e:run`.
 - `test:e2e`, `test:e2e:app` y `test:e2e:ssr` hacen `next build` antes de correr Playwright.
 - `test:e2e:run` ejecuta `scripts/run-e2e-suite.mjs`, que corre SSR E2E y luego E2E interactivo.
+- `test:coverage` corre Vitest con V8, thresholds globales y límites específicos para módulos críticos; `coverage/` es generado y no se versiona.
 - `deps:update` existe pero modifica lockfile y dependencias; no usarlo salvo pedido explícito.
 
 ## Variables de entorno esperadas
@@ -92,6 +94,8 @@ Live mode:
 - `PANEL_LIDER_ENDPOINT`
 - `PANEL_GENERAL_ENDPOINT`
 - `PANEL_CEDEARS_ENDPOINT`
+  - los cuatro endpoints son paths relativos estrictos, sin URL absoluta o protocol-relative, query, fragment, backslashes, traversal ni separadores/traversal codificados
+  - se resuelven dentro del origin y pathname base de `API_URL`
 
 Generales / despliegue:
 
@@ -210,8 +214,8 @@ Live/demo:
 
 Integración server:
 
-- `src/lib/server/upstream/iol.ts` maneja OAuth, timeout, `cache: 'no-store'`, sanitización básica y retry único ante `401/403`.
-- `src/lib/server/core/env.ts` valida URLs sensibles, normaliza base URL/endpoints y resuelve variables operativas.
+- `src/lib/server/upstream/iol.ts` maneja OAuth, timeout, `cache: 'no-store'`, `redirect: 'error'`, sanitización básica y retry único ante `401/403`.
+- `src/lib/server/core/env.ts` valida URLs sensibles y endpoints relativos, normaliza la base URL y resuelve variables operativas.
 - `src/lib/server/panel/panelCache.ts` usa cache en memoria por panel con TTL de `30s`.
 - `src/lib/server/history/historyCache.ts` usa cache en memoria por `market:symbol:range` con TTL de `5m` y máximo `500` claves.
 - `src/lib/server/upstream/quoteCache.ts` cachea quotes de favoritos y soporta stale fallback con `STOCK_QUOTE_FRESH_TTL_MS` / `STOCK_QUOTE_STALE_TTL_MS`, igual que la caché de detalle en `src/lib/server/quote/quoteCache.ts`.
@@ -244,6 +248,8 @@ Rate limiting:
 - `useFavoritePanel` usa un patrón similar para `/api/favorites`, pero su key y polling sólo están habilitados cuando el panel Favoritos está activo.
 - `StockDetailsModal` se carga con `next/dynamic` y `ssr: false`; no romper esa carga diferida salvo motivo claro.
 - El histórico usa `lightweight-charts`; tratarlo como componente relativamente pesado.
+- `useStockHistory` no conserva puntos de una key anterior al cambiar símbolo, mercado o rango; sólo acepta respuestas cuya identidad coincide con la solicitud activa.
+- El histórico usa `fresh`/`memory-cache` con `meta.stale: false` y `stale` con `meta.stale: true`.
 - Mantener estados explícitos de loading, error, empty, stale y success.
 - Favoritos, tema y orden viven del lado cliente; no mezclar esa lógica con server code.
 - En demo mode la UI muestra badge `Demo data`.
@@ -251,9 +257,10 @@ Rate limiting:
 ## Testing y validación
 
 - Unit, component, hook y route tests corren con `npm run test` mediante Vitest.
+- `npm run test:coverage` agrega cobertura V8; thresholds globales: statements/lines `80`, functions `75`, branches `70`, más límites específicos de módulos críticos.
 - E2E corren con Playwright sobre `http://localhost:3100` por default vía `scripts/run-e2e.mjs`.
 - Existe cobertura SSR específica con `npm run test:e2e:ssr`.
-- CI corre `npm run validate` en GitHub Actions con Node `24.15.0`, `MARKET_DATA_SOURCE=demo` y `NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3100`.
+- CI usa jobs `quality`, `build` y `e2e`, acciones fijadas por SHA, permisos read-only, cancelación de ejecuciones obsoletas y Node `24.15.0`; corre en demo con `NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3100`.
 
 Antes de dar por válido un cambio de código, correr como mínimo:
 
