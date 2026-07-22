@@ -56,7 +56,9 @@ describe('README', () => {
     expect(readme).toContain('BFF interno')
     expect(readme).toContain('Caché fresh/stale')
     expect(readme).toContain('Rate limiting configurable')
-    expect(readme).toContain('número de tests para evitar')
+    expect(readme).toContain('npm run test:coverage')
+    expect(readme).toContain('statements `80`')
+    expect(readme).toContain('branches `70`')
   })
 
   it('documents bounded panel stale fallback without contradictory fail-closed claims', () => {
