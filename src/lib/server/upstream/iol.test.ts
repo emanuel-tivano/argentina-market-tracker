@@ -205,6 +205,8 @@ describe('iol server client', () => {
     expect(getFetchCall(1)[0]).toBe('https://api.example.test/panel')
     expect(getRequestHeaders(1).get('authorization')).toBe('Bearer fresh-token')
     expect(getRequestHeaders(1).get('accept')).toBe('application/json')
+    expect(getFetchCall(0)[1]?.redirect).toBe('error')
+    expect(getFetchCall(1)[1]?.redirect).toBe('error')
     expect(String(getRequestBody(0))).toContain('username=test-user')
     expect(String(getRequestBody(0))).toContain('password=super-secret-password')
   })
@@ -752,6 +754,26 @@ describe('iol server client', () => {
 
     await expect(iol('/panel')).rejects.toThrow('Missing API_USERNAME')
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('rejects an invalid token endpoint before sending OAuth credentials', async () => {
+    process.env.TOKEN_ENDPOINT = 'https://attacker.example/private-token'
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(iol('/panel')).rejects.toThrow('TOKEN_ENDPOINT')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects an invalid authenticated endpoint before obtaining or sending a bearer token', async () => {
+    setCachedToken('private-bearer-token', 1800)
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(iol('https://attacker.example/panel')).rejects.toThrow(
+      'UPSTREAM_ENDPOINT'
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('rejects an insecure API URL before sending credentials over the network', async () => {

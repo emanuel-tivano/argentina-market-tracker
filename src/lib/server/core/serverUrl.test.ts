@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
-import { normalizeServerUrl } from './serverUrl'
+import {
+  buildUpstreamUrl,
+  normalizeServerUrl,
+  normalizeUpstreamRelativePath,
+} from './serverUrl'
 
 type SensitiveUrlCase = {
   allowPathname: boolean
@@ -132,5 +136,71 @@ describe('sensitive server URL validation', () => {
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).toContain(testCase.variableName)
     expect((error as Error).message).not.toContain('secret')
+  })
+})
+
+describe('upstream relative paths', () => {
+  it.each([
+    ['token', 'token'],
+    ['/token', 'token'],
+    ['api/token', 'api/token'],
+    ['/api/v2/panel/lider/', 'api/v2/panel/lider'],
+    ['cotizaciones/paneles/lideres', 'cotizaciones/paneles/lideres'],
+    ['api/v2/panel%20general', 'api/v2/panel%20general'],
+  ])('normalizes valid path %s', (value, expected) => {
+    expect(normalizeUpstreamRelativePath('TOKEN_ENDPOINT', value)).toBe(
+      expected
+    )
+  })
+
+  it.each([
+    'https://attacker.example/token',
+    'http://attacker.example/token',
+    'ftp://attacker.example/token',
+    '//attacker.example/token',
+    '\\attacker.example\\token',
+    'path\\segment',
+    '../token',
+    'api/../token',
+    './token',
+    'api/./token',
+    '%2e%2e/token',
+    '%2E%2E/token',
+    '%252e%252e/token',
+    '%2f%2fattacker.example',
+    '%5c%5cattacker.example',
+    'token?redirect=https://attacker.example',
+    'token#fragment',
+    'user:password@host/path',
+    '',
+    '   ',
+    'api token',
+    'token\u0000next',
+    'token\u000anext',
+    'api//token',
+  ])('rejects unsafe path %j without echoing it', (value) => {
+    expect(() =>
+      normalizeUpstreamRelativePath('TOKEN_ENDPOINT', value)
+    ).toThrow('TOKEN_ENDPOINT')
+
+    try {
+      normalizeUpstreamRelativePath('TOKEN_ENDPOINT', value)
+    } catch (error: unknown) {
+      if (value) {
+        expect(String(error)).not.toContain(value)
+      }
+    }
+  })
+
+  it('preserves the API origin and base pathname', () => {
+    const url = buildUpstreamUrl(
+      'https://api.example.com/base/v2',
+      'PANEL_LIDER_ENDPOINT',
+      '/panel/lider/'
+    )
+
+    expect(url).toBe('https://api.example.com/base/v2/panel/lider')
+    expect(new URL(url).origin).toBe('https://api.example.com')
+    expect(new URL(url).pathname.startsWith('/base/v2/')).toBe(true)
   })
 })

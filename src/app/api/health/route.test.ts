@@ -114,6 +114,73 @@ describe('/api/health route', () => {
     expect(serialized).not.toContain('private-password')
   })
 
+  it.each([
+    ['TOKEN_ENDPOINT', 'https://attacker.example/private-token'],
+    ['PANEL_LIDER_ENDPOINT', '../private-lider'],
+    ['PANEL_GENERAL_ENDPOINT', 'panel?token=private-query'],
+    ['PANEL_CEDEARS_ENDPOINT', 'panel\\private-cedears'],
+  ])('reports invalid live endpoint %s without exposing its value', async (name, value) => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { GET } = await loadRoute({
+      MARKET_DATA_SOURCE: 'live',
+      NODE_ENV: 'production',
+      API_URL: 'https://api.example.test/base',
+      TOKEN_ENDPOINT: 'token',
+      API_USERNAME: 'user',
+      API_PASSWORD: 'password',
+      PANEL_LIDER_ENDPOINT: 'lider-endpoint',
+      PANEL_GENERAL_ENDPOINT: 'general-endpoint',
+      PANEL_CEDEARS_ENDPOINT: 'cedears-endpoint',
+      [name]: value,
+      RATE_LIMIT_STORE: 'memory',
+      RATE_LIMIT_TRUSTED_PROXY: 'vercel',
+      VERCEL: '1',
+    })
+
+    const response = await GET(request('/api/health'))
+    const body = await response.json()
+    const serialized = JSON.stringify(body)
+
+    expect(response.status).toBe(200)
+    expect(body.status).toBe('degraded')
+    expect(body.checks.config.invalidLiveConfig).toEqual([name])
+    expect(serialized).not.toContain(value)
+    expect(serialized).not.toContain('private')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('reports multiple invalid endpoints once and accepts valid nested paths', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { GET } = await loadRoute({
+      MARKET_DATA_SOURCE: 'live',
+      NODE_ENV: 'production',
+      API_URL: 'https://api.example.test/base',
+      TOKEN_ENDPOINT: '//attacker.example/token',
+      API_USERNAME: 'user',
+      API_PASSWORD: 'password',
+      PANEL_LIDER_ENDPOINT: 'api/v2/panel/lider',
+      PANEL_GENERAL_ENDPOINT: '%2e%2e/general',
+      PANEL_CEDEARS_ENDPOINT: 'api/v2/panel/cedears',
+      RATE_LIMIT_STORE: 'memory',
+      RATE_LIMIT_TRUSTED_PROXY: 'vercel',
+      VERCEL: '1',
+    })
+
+    const response = await GET(request('/api/health'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.checks.config).toEqual({
+      invalidLiveConfig: ['TOKEN_ENDPOINT', 'PANEL_GENERAL_ENDPOINT'],
+      missingLiveConfig: [],
+      status: 'degraded',
+    })
+    expect(new Set(body.checks.config.invalidLiveConfig).size).toBe(2)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('reports an insecure required Redis URL as degraded', async () => {
     const { GET } = await loadRoute({
       MARKET_DATA_SOURCE: 'demo',

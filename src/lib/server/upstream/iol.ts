@@ -1,5 +1,6 @@
 import 'server-only'
 import { ENV } from '@/lib/server/core/env'
+import { buildUpstreamUrl } from '@/lib/server/core/serverUrl'
 import {
   extractUpstreamErrorSummary,
   incrementMetricCounter,
@@ -162,9 +163,8 @@ export function isRecoverableIolUpstreamError(
 /**
  * Construye un URL absoluto a partir de ENV.API_URL.
  */
-function buildUrl(path: string): string {
-  const normalizedPath = path.replace(/^\/+/, '')
-  return new URL(normalizedPath, `${ENV.API_URL}/`).toString()
+function buildUrl(path: string, variableName = 'UPSTREAM_ENDPOINT'): string {
+  return buildUpstreamUrl(ENV.API_URL, variableName, path)
 }
 
 /**
@@ -200,6 +200,7 @@ async function fetchWithTimeout(
   try {
     return await fetch(input, {
       ...init,
+      redirect: 'error',
       signal: controller.signal,
     })
   } catch (error) {
@@ -231,7 +232,7 @@ async function fetchWithTimeout(
  * Obtiene y cachea un token de acceso.
  */
 async function requestTokenResponse(): Promise<TokenResponse> {
-  const url = buildUrl(ENV.TOKEN_ENDPOINT)
+  const url = buildUrl(ENV.TOKEN_ENDPOINT, 'TOKEN_ENDPOINT')
   const startedAt = Date.now()
 
   const body = new URLSearchParams({
@@ -392,8 +393,9 @@ export async function getQuoteBySymbol<T = unknown>(
  * y reintenta una sola vez.
  */
 export async function iol<T>(path: string, init: IolRequestInit = {}): Promise<T> {
+  const url = buildUrl(path)
   let token = await fetchToken()
-  let res = await callWithToken(path, init, token)
+  let res = await callWithToken(url, init, token)
 
   if (res.status === 401 || res.status === 403) {
     devLog('auth failed, retrying once with fresh token')
@@ -403,7 +405,7 @@ export async function iol<T>(path: string, init: IolRequestInit = {}): Promise<T
     clearCachedTokenIfMatches(token)
 
     token = await fetchToken()
-    res = await callWithToken(path, init, token)
+    res = await callWithToken(url, init, token)
 
     if (res.status === 401 || res.status === 403) {
       clearCachedTokenIfMatches(token)
@@ -440,11 +442,10 @@ export async function iol<T>(path: string, init: IolRequestInit = {}): Promise<T
  * Llama a la API con token y timeout por defecto.
  */
 async function callWithToken(
-  path: string,
+  url: string,
   init: IolRequestInit,
   token: string
 ): Promise<Response> {
-  const url = buildUrl(path)
   const startedAt = Date.now()
   const headers = new Headers(init.headers)
 

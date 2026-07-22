@@ -60,6 +60,41 @@ describe('server env', () => {
     )
   })
 
+  it('normalizes safe relative upstream endpoint paths', async () => {
+    vi.resetModules()
+    process.env = {
+      NODE_ENV: 'test',
+      TOKEN_ENDPOINT: '/api/token/',
+      PANEL_LIDER_ENDPOINT: '/api/v2/panel/lider/',
+      PANEL_GENERAL_ENDPOINT: 'api/v2/panel%20general',
+      PANEL_CEDEARS_ENDPOINT: 'api/v2/panel/cedears',
+    }
+    vi.doMock('server-only', () => ({}))
+    const { ENV } = await import('./env')
+
+    expect(ENV.TOKEN_ENDPOINT).toBe('api/token')
+    expect(ENV.PANEL_LIDER_ENDPOINT).toBe('api/v2/panel/lider')
+    expect(ENV.PANEL_GENERAL_ENDPOINT).toBe('api/v2/panel%20general')
+    expect(ENV.PANEL_CEDEARS_ENDPOINT).toBe('api/v2/panel/cedears')
+  })
+
+  it.each([
+    ['TOKEN_ENDPOINT', 'https://attacker.example/token'],
+    ['PANEL_LIDER_ENDPOINT', '../lider'],
+    ['PANEL_GENERAL_ENDPOINT', 'panel?redirect=secret'],
+    ['PANEL_CEDEARS_ENDPOINT', 'panel\\cedears'],
+  ])('rejects invalid %s through ENV', async (name, value) => {
+    vi.resetModules()
+    process.env = {
+      NODE_ENV: 'test',
+      [name]: value,
+    }
+    vi.doMock('server-only', () => ({}))
+    const { ENV } = await import('./env')
+
+    expect(() => ENV[name as keyof typeof ENV]).toThrow(name)
+  })
+
   it('uses a safe default favorites quote concurrency when env is missing', async () => {
     vi.resetModules()
     process.env = {
@@ -96,50 +131,43 @@ describe('server env', () => {
     expect(getRuntimeEnvSummary().missingLiveConfig).toContain('API_URL')
   })
 
-  it('uses a configured favorites quote concurrency within range', async () => {
+  it.each(['1', '4', '10'])(
+    'accepts strict favorites quote concurrency %s',
+    async (value) => {
+      vi.resetModules()
+      process.env = {
+        NODE_ENV: 'test',
+        FAVORITES_QUOTE_CONCURRENCY: value,
+      }
+      vi.doMock('server-only', () => ({}))
+      const { ENV } = await import('./env')
+
+      expect(ENV.FAVORITES_QUOTE_CONCURRENCY).toBe(Number(value))
+    }
+  )
+
+  it.each([
+    '0',
+    '11',
+    '-1',
+    '4workers',
+    '4.5',
+    ' 4 extra',
+    '0x4',
+    '1e1',
+    'NaN',
+    'Infinity',
+    '',
+  ])('uses the default for invalid favorites concurrency %j', async (value) => {
     vi.resetModules()
     process.env = {
       NODE_ENV: 'test',
-      FAVORITES_QUOTE_CONCURRENCY: '6',
+      FAVORITES_QUOTE_CONCURRENCY: value,
     }
     vi.doMock('server-only', () => ({}))
     const { ENV } = await import('./env')
 
-    expect(ENV.FAVORITES_QUOTE_CONCURRENCY).toBe(6)
-  })
-
-  it('falls back to the safe default when favorites quote concurrency is invalid', async () => {
-    vi.resetModules()
-    process.env = {
-      NODE_ENV: 'test',
-      FAVORITES_QUOTE_CONCURRENCY: '99',
-    }
-    vi.doMock('server-only', () => ({}))
-    let { ENV } = await import('./env')
-
     expect(ENV.FAVORITES_QUOTE_CONCURRENCY).toBe(4)
-
-    vi.resetModules()
-    process.env = {
-      NODE_ENV: 'test',
-      FAVORITES_QUOTE_CONCURRENCY: 'abc',
-    }
-    vi.doMock('server-only', () => ({}))
-    ;({ ENV } = await import('./env'))
-
-    expect(ENV.FAVORITES_QUOTE_CONCURRENCY).toBe(4)
-  })
-
-  it('preserves the previous parseInt semantics for favorites quote concurrency', async () => {
-    vi.resetModules()
-    process.env = {
-      NODE_ENV: 'test',
-      FAVORITES_QUOTE_CONCURRENCY: '6workers',
-    }
-    vi.doMock('server-only', () => ({}))
-    const { ENV } = await import('./env')
-
-    expect(ENV.FAVORITES_QUOTE_CONCURRENCY).toBe(6)
   })
 
   it('validates Redis timeout and negative quote cache TTL bounds', async () => {

@@ -1075,6 +1075,25 @@ describe('/api/panel route', () => {
     expect(iolFetch).not.toHaveBeenCalled()
   })
 
+  it('rejects an unsafe configured panel endpoint before upstream access', async () => {
+    const iolFetch = vi.fn()
+    const { GET } = await loadLiveRoute(iolFetch, 'test', {
+      PANEL_LIDER_ENDPOINT: 'https://attacker.example/private-panel',
+    })
+
+    const response = await GET(request('/api/panel?type=lider'))
+    const body = await response.json()
+
+    expect(response.status).toBe(502)
+    expect(body).toMatchObject({
+      ok: false,
+      error: 'PANEL_ERROR',
+      details: expect.stringContaining('PANEL_LIDER_ENDPOINT'),
+    })
+    expect(JSON.stringify(body)).not.toContain('attacker.example')
+    expect(iolFetch).not.toHaveBeenCalled()
+  })
+
   it('can be imported without required env vars during build-time analysis', async () => {
     const iolFetch = vi.fn()
 
