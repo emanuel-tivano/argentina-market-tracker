@@ -55,8 +55,7 @@ function pruneHistoryCache(now = Date.now()) {
 
 function buildCachedHistoryResponse(
   entry: HistoryCacheEntry,
-  cacheStatus: StockHistorySuccessResponse['cacheStatus'],
-  stale: boolean
+  cacheStatus: StockHistorySuccessResponse['cacheStatus']
 ): StockHistorySuccessResponse {
   return {
     ...entry.response,
@@ -64,7 +63,7 @@ function buildCachedHistoryResponse(
     cacheStatus,
     meta: {
       ...entry.response.meta,
-      stale,
+      stale: cacheStatus === 'stale',
     },
   }
 }
@@ -104,7 +103,7 @@ export function getCachedHistoryResponse(
     range,
   })
 
-  return buildCachedHistoryResponse(cached, 'memory-cache', false)
+  return buildCachedHistoryResponse(cached, 'memory-cache')
 }
 
 export function getStaleHistoryResponse(
@@ -133,7 +132,7 @@ export function getStaleHistoryResponse(
     range,
   })
 
-  return buildCachedHistoryResponse(cached, 'memory-cache', true)
+  return buildCachedHistoryResponse(cached, 'stale')
 }
 
 export function setCachedHistoryResponse(

@@ -1,6 +1,7 @@
 import 'server-only'
 
 import {
+  isValidStockHistoryCacheState,
   type StockHistoryErrorCode,
   type StockHistoryErrorResponse,
   type StockHistoryMarket,
@@ -19,6 +20,10 @@ export function createHistoryResponse(
   cacheStatus: StockHistorySuccessResponse['cacheStatus'],
   meta: StockHistoryResponseMeta
 ): StockHistorySuccessResponse {
+  if (!isValidStockHistoryCacheState(cacheStatus, meta.stale)) {
+    throw new Error('Invalid stock history cache state')
+  }
+
   return {
     ok: true,
     data,

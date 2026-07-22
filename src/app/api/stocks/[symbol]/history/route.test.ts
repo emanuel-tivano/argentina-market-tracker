@@ -672,7 +672,7 @@ describe('/api/stocks/[symbol]/history route', () => {
     expect(response.status).toBe(200)
     expect(body).toMatchObject({
       ok: true,
-      cacheStatus: 'memory-cache',
+      cacheStatus: 'stale',
       data: [{ date: '2026-05-07', close: 101 }],
       meta: {
         stale: true,

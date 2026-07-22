@@ -206,6 +206,28 @@ describe('StockDetailsContent variants', () => {
     vi.useRealTimers()
   })
 
+  it('keeps the stale history warning visible', () => {
+    render(
+      <StockDetailsContent
+        stock={stock}
+        variant="page"
+        historyRange="1M"
+        onHistoryRangeChange={vi.fn()}
+        history={{
+          ...pageHistory,
+          meta: { ...pageHistory.meta, source: 'live', stale: true },
+        }}
+      />
+    )
+
+    expect(
+      screen.getByText(
+        'Mostrando histórico cacheado por una falla temporal del upstream.'
+      )
+    ).not.toBeNull()
+    expect(screen.getByText('Stale')).not.toBeNull()
+  })
+
   it('describes invalid or duplicate history entries as discarded points', () => {
     render(
       <StockDetailsContent

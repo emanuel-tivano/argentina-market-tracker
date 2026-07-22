@@ -66,9 +66,29 @@ describe('historyService', () => {
     })
 
     expect(stale.ok).toBe(true)
-    expect(stale.cacheStatus).toBe('memory-cache')
+    expect(stale.cacheStatus).toBe('stale')
     expect(stale.meta.stale).toBe(true)
     expect(stale.data).toEqual([{ date: '2026-05-07', close: 101 }])
+    const { observabilityTestExports } = await import(
+      '@/lib/server/core/observability'
+    )
+    const snapshot = observabilityTestExports.getObservabilitySnapshot()
+
+    expect(snapshot.counters).toContainEqual(
+      expect.objectContaining({
+        name: 'history.response.total',
+        tags: expect.objectContaining({ cacheStatus: 'stale', stale: 'true' }),
+      })
+    )
+    expect(snapshot.counters).not.toContainEqual(
+      expect.objectContaining({
+        name: 'history.response.total',
+        tags: expect.objectContaining({
+          cacheStatus: 'memory-cache',
+          stale: 'true',
+        }),
+      })
+    )
     expect(consoleWarn).toHaveBeenCalledWith(
       '[history.stale-fallback]',
       expect.objectContaining({

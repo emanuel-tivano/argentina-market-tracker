@@ -14,6 +14,18 @@ export const DEFAULT_STOCK_HISTORY_RANGE: StockHistoryRange = '1M'
 export const STOCK_HISTORY_MARKETS = ['bCBA'] as const
 export type StockHistoryMarket = (typeof STOCK_HISTORY_MARKETS)[number]
 export const DEFAULT_STOCK_HISTORY_MARKET: StockHistoryMarket = 'bCBA'
+export type StockHistoryCacheStatus = 'fresh' | 'memory-cache' | 'stale'
+
+export function isValidStockHistoryCacheState(
+  cacheStatus: unknown,
+  stale: unknown
+): cacheStatus is StockHistoryCacheStatus {
+  return (
+    (cacheStatus === 'stale' && stale === true) ||
+    ((cacheStatus === 'fresh' || cacheStatus === 'memory-cache') &&
+      stale === false)
+  )
+}
 
 export interface StockHistoryPoint {
   date: string
@@ -47,7 +59,7 @@ export interface StockHistorySuccessResponse {
   data: StockHistoryPoint[]
   fetchedAt: string
   servedAt: string
-  cacheStatus: 'fresh' | 'memory-cache'
+  cacheStatus: StockHistoryCacheStatus
   range: StockHistoryRange
   market: StockHistoryMarket
   symbol: string

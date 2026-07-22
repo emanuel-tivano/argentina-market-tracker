@@ -3,6 +3,7 @@ import {
   isStockHistoryMarket,
   isStockHistoryPoint,
   isStockHistoryRange,
+  isValidStockHistoryCacheState,
   type StockHistoryErrorCode,
   type StockHistoryResponse,
   type StockHistorySuccessResponse,
@@ -51,7 +52,6 @@ function assertStockHistorySuccessResponse(
   if (
     typeof value.fetchedAt !== 'string' ||
     typeof value.servedAt !== 'string' ||
-    (value.cacheStatus !== 'fresh' && value.cacheStatus !== 'memory-cache') ||
     !isStockHistoryRange(typeof value.range === 'string' ? value.range : null) ||
     !isStockHistoryMarket(typeof value.market === 'string' ? value.market : null) ||
     typeof value.symbol !== 'string'
@@ -72,6 +72,11 @@ function assertStockHistorySuccessResponse(
     (value.meta.requestId !== undefined && typeof value.meta.requestId !== 'string')
   ) {
     throw new Error('Respuesta inválida del servidor: meta histórica inválida.')
+  }
+  if (!isValidStockHistoryCacheState(value.cacheStatus, value.meta.stale)) {
+    throw new Error(
+      'Respuesta inválida del servidor: estado de caché histórica inválido.'
+    )
   }
 }
 
