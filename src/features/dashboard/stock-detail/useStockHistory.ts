@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import {
   buildStockHistoryApiPath,
   DEFAULT_STOCK_HISTORY_MARKET,
   isStockHistoryMarket,
+  type StockHistoryMarket,
   type StockHistoryPoint,
   type StockHistoryRange,
   type StockHistorySuccessResponse,
@@ -22,6 +23,34 @@ type UseStockHistoryOptions = {
   enabled?: boolean
   initialData?: StockHistorySuccessResponse
   refreshIntervalMs?: number
+}
+
+export type HistoryRequestIdentity = {
+  symbol: string
+  market: StockHistoryMarket
+  range: StockHistoryRange
+}
+
+export function matchesHistoryRequestIdentity(
+  response: StockHistorySuccessResponse,
+  identity: HistoryRequestIdentity
+): boolean {
+  return (
+    response.symbol === identity.symbol &&
+    response.market === identity.market &&
+    response.range === identity.range
+  )
+}
+
+function normalizeResponseForIdentity(
+  response: StockHistorySuccessResponse,
+  identity: HistoryRequestIdentity
+): StockHistorySuccessResponse {
+  if (!matchesHistoryRequestIdentity(response, identity)) {
+    throw new Error('La respuesta histórica no coincide con la solicitud activa.')
+  }
+
+  return normalizeHistoryResponse(response)
 }
 
 function getPointSortValue(point: StockHistoryPoint): string {
@@ -66,13 +95,20 @@ export function useStockHistory(
     initialData,
     refreshIntervalMs = STOCK_HISTORY_REFRESH_INTERVAL_MS,
   } = options
-  const normalizedSymbol = symbol.trim()
+  const normalizedSymbol = symbol.trim().toUpperCase()
   const normalizedMarket = market.trim()
   const normalizedRefreshIntervalMs =
     normalizeStockHistoryRefreshIntervalMs(refreshIntervalMs)
   const historyMarket = isStockHistoryMarket(normalizedMarket)
     ? normalizedMarket
     : null
+  const requestIdentity = useMemo<HistoryRequestIdentity | null>(
+    () =>
+      normalizedSymbol && historyMarket
+        ? { symbol: normalizedSymbol, market: historyMarket, range }
+        : null,
+    [historyMarket, normalizedSymbol, range]
+  )
   const fetchUrl =
     enabled && normalizedSymbol && historyMarket
       ? buildStockHistoryApiPath(normalizedSymbol, range, historyMarket)
@@ -88,12 +124,26 @@ export function useStockHistory(
   const { data, error, isLoading, isValidating, mutate } = useSWR<
     StockHistorySuccessResponse,
     Error
-  >(fetchUrl, (url: string) => fetchStockHistory(url).then(normalizeHistoryResponse), {
-    revalidateOnFocus: false,
-    errorRetryCount: 1,
-    fallbackData: initialData ? normalizeHistoryResponse(initialData) : undefined,
-    keepPreviousData: true,
-  })
+  >(
+    fetchUrl,
+    (url: string) =>
+      fetchStockHistory(url).then((response) =>
+        requestIdentity
+          ? normalizeResponseForIdentity(response, requestIdentity)
+          : normalizeHistoryResponse(response)
+      ),
+    {
+      revalidateOnFocus: false,
+      errorRetryCount: 1,
+      fallbackData:
+        initialData &&
+        requestIdentity &&
+        matchesHistoryRequestIdentity(initialData, requestIdentity)
+          ? normalizeHistoryResponse(initialData)
+          : undefined,
+      keepPreviousData: false,
+    }
+  )
 
   useEffect(() => {
     isMountedRef.current = true
@@ -118,9 +168,12 @@ export function useStockHistory(
     setRefreshError(null)
 
     try {
-      const nextData = normalizeHistoryResponse(
-        await fetchStockHistory(fetchUrl, { signal: controller.signal })
-      )
+      const response = await fetchStockHistory(fetchUrl, {
+        signal: controller.signal,
+      })
+      const nextData = requestIdentity
+        ? normalizeResponseForIdentity(response, requestIdentity)
+        : normalizeHistoryResponse(response)
 
       await mutate(nextData, {
         populateCache: true,
@@ -141,7 +194,7 @@ export function useStockHistory(
         setIsSilentRefreshing(false)
       }
     }
-  }, [fetchUrl, mutate])
+  }, [fetchUrl, mutate, requestIdentity])
 
   useEffect(() => {
     return () => {
