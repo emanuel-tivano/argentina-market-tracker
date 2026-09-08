@@ -2,12 +2,12 @@ import { type ReactNode, useId } from 'react';
 import Link from 'next/link';
 
 import { type MarketPanelKey } from '@/lib/market';
+import { type Theme } from '@/lib/theme';
+import ThemeToggle from './ThemeToggle';
 
 import PanelMenu from './PanelMenu';
-import Title from '@/features/dashboard/shell/PageTitle';
-import DashboardFloatingActions from './DashboardFloatingActions';
+import BackToTopButton from './BackToTopButton';
 import { MARKET_PANEL_OPTIONS } from '@/features/dashboard/panel/marketPanelOptions';
-import { type Theme } from '@/lib/theme';
 
 type PanelContentProps = {
   title: string;
@@ -32,7 +32,7 @@ export default function PanelContent({
 
   return (
     <section className="dashboard-container py-4" aria-labelledby={titleId}>
-      <Title id={titleId}>{title}</Title>
+      <h1 id={titleId} className="page-title">{title}</h1>
 
       <div className="panel-toolbar">
         <div className="panel-menu-status">
@@ -70,7 +70,17 @@ export default function PanelContent({
         </Link>
       </footer>
 
-      <DashboardFloatingActions initialTheme={initialTheme} />
+      <div
+        className="dashboard-floating-actions"
+        role="group"
+        aria-label="Acciones rápidas"
+      >
+        <BackToTopButton />
+        <ThemeToggle
+          initialTheme={initialTheme}
+          className="dashboard-floating-button"
+        />
+      </div>
     </section>
   );
 }

@@ -8,7 +8,6 @@ type UseRefreshableSWROptions<TData> = {
   fetcher(url: string): Promise<TData>
   key: string | null
   mutate: KeyedMutator<TData>
-  withRefreshParam(url: string): string
 }
 
 function unknownToError(err: unknown): Error {
@@ -20,7 +19,6 @@ export function useRefreshableSWR<TData>({
   fetcher,
   key,
   mutate,
-  withRefreshParam,
 }: UseRefreshableSWROptions<TData>) {
   const refreshInFlightKeysRef = useRef(new Set<string>())
   const lastAutoRefreshAtRef = useRef(0)
@@ -53,7 +51,12 @@ export function useRefreshableSWR<TData>({
 
     try {
       await mutate(
-        () => fetcher(bypassCache ? withRefreshParam(key) : key),
+        () =>
+          fetcher(
+            bypassCache
+              ? `${key}${key.includes('?') ? '&' : '?'}refresh=1`
+              : key
+          ),
         {
           populateCache: true,
           revalidate: false,
@@ -70,7 +73,7 @@ export function useRefreshableSWR<TData>({
     } finally {
       setRefreshInFlight(key, false)
     }
-  }, [fetcher, key, mutate, setRefreshInFlight, withRefreshParam])
+  }, [fetcher, key, mutate, setRefreshInFlight])
 
   const refresh = useCallback(() => runRefresh(true), [runRefresh])
   const autoRefresh = useCallback(async () => {

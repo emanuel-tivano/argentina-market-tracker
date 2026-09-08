@@ -3,6 +3,7 @@ import {
   normalizePanelData,
   normalizePanelDataResult,
   normalizeQuoteData,
+  PanelNormalizationError,
 } from './panel'
 
 describe('normalizePanelData', () => {
@@ -182,13 +183,89 @@ describe('normalizePanelData', () => {
     ])
   })
 
+  it('treats null optional fields as absent without leaking null internally', () => {
+    const [item] = normalizePanelData([
+      {
+        simbolo: 'ALUA',
+        descripcion: 'Aluar',
+        ultimoPrecio: null,
+        variacionPorcentual: null,
+        apertura: null,
+        maximo: null,
+        minimo: null,
+        ultimoCierre: null,
+        volumen: null,
+        fechaHora: null,
+        montoOperado: null,
+        cantidadOperaciones: null,
+        moneda: null,
+        plazo: null,
+        laminaMinima: null,
+        lote: null,
+        puntas: null,
+      },
+    ])
+
+    expect(item).toEqual({
+      simbolo: 'ALUA',
+      descripcion: 'Aluar',
+    })
+    expect(Object.values(item)).not.toContain(null)
+  })
+
+  it('omits null fields inside puntas while preserving valid values', () => {
+    expect(
+      normalizePanelData([
+        {
+          simbolo: 'BMA',
+          descripcion: 'Banco Macro',
+          puntas: {
+            cantidadCompra: null,
+            precioCompra: '250,50',
+            precioVenta: null,
+            cantidadVenta: null,
+          },
+        },
+      ])
+    ).toEqual([
+      {
+        simbolo: 'BMA',
+        descripcion: 'Banco Macro',
+        puntas: {
+          precioCompra: 250.5,
+        },
+      },
+    ])
+  })
+
+  it('accepts moneda null as an absent optional string', () => {
+    expect(
+      normalizePanelData([
+        { simbolo: 'GGAL', descripcion: 'Galicia', moneda: null },
+      ])
+    ).toEqual([{ simbolo: 'GGAL', descripcion: 'Galicia' }])
+  })
+
+  it('accepts plazo null as an absent optional string', () => {
+    expect(
+      normalizePanelData([
+        { simbolo: 'YPFD', descripcion: 'YPF', plazo: null },
+      ])
+    ).toEqual([{ simbolo: 'YPFD', descripcion: 'YPF' }])
+  })
+
   it.each([
+    ['alphabetic text', 'abc'],
     ['currency text', '$ 123.45'],
     ['multiple decimal separators', '12.34.56'],
     ['scientific notation', '1e3'],
     ['non-finite text', 'Infinity'],
     ['empty text', '   '],
-  ])('rejects invalid numeric strings: %s', (_caseName, ultimoPrecio) => {
+    ['object', {}],
+    ['array', []],
+    ['NaN', Number.NaN],
+    ['Infinity number', Number.POSITIVE_INFINITY],
+  ])('rejects invalid numeric inputs: %s', (_caseName, ultimoPrecio) => {
     expect(() =>
       normalizePanelData([
         {
@@ -243,6 +320,40 @@ describe('normalizePanelData', () => {
         descripcion: 'Grupo Financiero Galicia',
       },
     ])
+  })
+
+  it.each([
+    ['string', 'invalid'],
+    ['array', []],
+  ])('rejects an invalid puntas %s structure', (_caseName, puntas) => {
+    expect(() =>
+      normalizePanelData([
+        {
+          simbolo: 'BMA',
+          descripcion: 'Banco Macro',
+          puntas,
+        },
+      ])
+    ).toThrow('Upstream payload contains no valid items')
+  })
+
+  it('keeps fail-closed behavior when every item is genuinely invalid', () => {
+    expect(() =>
+      normalizePanelData([
+        {
+          simbolo: 'PAMP',
+          descripcion: 'Pampa Energia',
+          ultimoPrecio: 'abc',
+        },
+        {
+          simbolo: 'BMA',
+          descripcion: 'Banco Macro',
+          puntas: [],
+        },
+      ])
+    ).toThrowError(
+      new PanelNormalizationError('Upstream payload contains no valid items')
+    )
   })
 
   it('normalizes the individual quote payload shape returned by IOL', () => {

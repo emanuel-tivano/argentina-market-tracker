@@ -3,7 +3,10 @@ import { SWRConfig } from 'swr'
 import { type ReactNode } from 'react'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type StockHistoryRange } from '@/lib/stockHistory'
+import {
+  type StockHistoryRange,
+  type StockHistorySuccessResponse,
+} from '@/lib/stockHistory'
 import {
   normalizeLiveHistoryPoints,
   normalizeStockHistoryRefreshIntervalMs,
@@ -20,11 +23,13 @@ vi.mock('./stockHistoryClient', () => ({
 }))
 
 function renderWithSWR(ui: ReactNode) {
-  return render(
-    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
-      {ui}
-    </SWRConfig>
-  )
+  return render(ui, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        {children}
+      </SWRConfig>
+    ),
+  })
 }
 
 function HistoryProbe({
@@ -46,22 +51,30 @@ function HistoryProbe({
   })
 
   return (
-    <output>
-      {history.viewStatus}:{history.points.length}:{history.error?.message ?? ''}
-    </output>
+    <>
+      <output>
+        {history.viewStatus}:{history.points.length}:{history.error?.message ?? ''}
+      </output>
+      <span data-testid="history-close">{history.points[0]?.close ?? ''}</span>
+    </>
   )
 }
 
-function historyResponse(points = [{ date: '2026-05-01', close: 100 }]) {
+function historyResponse(
+  points = [{ date: '2026-05-01', close: 100 }],
+  identity: Partial<
+    Pick<StockHistorySuccessResponse, 'market' | 'range' | 'symbol'>
+  > = {}
+): StockHistorySuccessResponse {
   return {
     ok: true as const,
     data: points,
     fetchedAt: '2026-05-04T16:00:00.000Z',
     servedAt: '2026-05-04T16:00:00.000Z',
     cacheStatus: 'fresh' as const,
-    range: '1M' as const,
-    market: 'bCBA' as const,
-    symbol: 'GGAL',
+    range: identity.range ?? '1M',
+    market: identity.market ?? 'bCBA',
+    symbol: identity.symbol ?? 'GGAL',
     meta: {
       discardedPoints: 0,
       source: 'demo' as const,
@@ -69,6 +82,17 @@ function historyResponse(points = [{ date: '2026-05-01', close: 100 }]) {
       totalPoints: points.length,
     },
   }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+
+  return { promise, reject, resolve }
 }
 
 describe('useStockHistory', () => {
@@ -104,6 +128,118 @@ describe('useStockHistory', () => {
       )
     })
     expect(screen.getByText('loading:0:')).not.toBeNull()
+  })
+
+  it('does not expose the previous range while the active range loads', async () => {
+    const nextRange = deferred<StockHistorySuccessResponse>()
+    mocks.fetchStockHistory
+      .mockResolvedValueOnce(historyResponse([{ date: '2026-05-01', close: 101 }]))
+      .mockReturnValueOnce(nextRange.promise)
+
+    const view = renderWithSWR(<HistoryProbe symbol="GGAL" range="1M" />)
+    await waitFor(() => expect(screen.getByText('success:1:')).not.toBeNull())
+    expect(screen.getByTestId('history-close').textContent).toBe('101')
+
+    view.rerender(<HistoryProbe symbol="GGAL" range="1Y" />)
+
+    await waitFor(() => expect(screen.getByText('loading:0:')).not.toBeNull())
+    expect(screen.getByTestId('history-close').textContent).toBe('')
+
+    await act(async () => {
+      nextRange.resolve(
+        historyResponse([{ date: '2026-05-02', close: 202 }], { range: '1Y' })
+      )
+    })
+
+    await waitFor(() => expect(screen.getByText('success:1:')).not.toBeNull())
+    expect(screen.getByTestId('history-close').textContent).toBe('202')
+  })
+
+  it('ignores out-of-order responses across rapid range changes', async () => {
+    const oneWeek = deferred<StockHistorySuccessResponse>()
+    const oneMonth = deferred<StockHistorySuccessResponse>()
+    const oneYear = deferred<StockHistorySuccessResponse>()
+    mocks.fetchStockHistory.mockImplementation((url: string) => {
+      if (url.includes('range=1W')) return oneWeek.promise
+      if (url.includes('range=1M')) return oneMonth.promise
+      return oneYear.promise
+    })
+
+    const view = renderWithSWR(<HistoryProbe symbol="GGAL" range="1W" />)
+    view.rerender(<HistoryProbe symbol="GGAL" range="1M" />)
+    view.rerender(<HistoryProbe symbol="GGAL" range="1Y" />)
+
+    await act(async () => {
+      oneYear.resolve(
+        historyResponse([{ date: '2026-05-03', close: 301 }], { range: '1Y' })
+      )
+    })
+    await waitFor(() => expect(screen.getByTestId('history-close').textContent).toBe('301'))
+
+    await act(async () => {
+      oneMonth.resolve(
+        historyResponse([{ date: '2026-05-02', close: 201 }], { range: '1M' })
+      )
+      oneWeek.resolve(
+        historyResponse([{ date: '2026-05-01', close: 101 }], { range: '1W' })
+      )
+    })
+
+    expect(screen.getByTestId('history-close').textContent).toBe('301')
+  })
+
+  it('does not expose data from the previous symbol', async () => {
+    const nextSymbol = deferred<StockHistorySuccessResponse>()
+    mocks.fetchStockHistory
+      .mockResolvedValueOnce(historyResponse([{ date: '2026-05-01', close: 100 }]))
+      .mockReturnValueOnce(nextSymbol.promise)
+
+    const view = renderWithSWR(<HistoryProbe symbol="GGAL" />)
+    await waitFor(() => expect(screen.getByText('success:1:')).not.toBeNull())
+
+    view.rerender(<HistoryProbe symbol="YPFD" />)
+
+    await waitFor(() => expect(screen.getByText('loading:0:')).not.toBeNull())
+    expect(screen.getByTestId('history-close').textContent).toBe('')
+
+    await act(async () => {
+      nextSymbol.resolve(
+        historyResponse([{ date: '2026-05-02', close: 500 }], { symbol: 'YPFD' })
+      )
+    })
+    await waitFor(() => expect(screen.getByTestId('history-close').textContent).toBe('500'))
+  })
+
+  it('shows the new range error without retaining old statistics', async () => {
+    mocks.fetchStockHistory
+      .mockResolvedValueOnce(historyResponse([{ date: '2026-05-01', close: 100 }]))
+      .mockRejectedValue(new Error('new range failed'))
+
+    const view = renderWithSWR(<HistoryProbe symbol="GGAL" range="1M" />)
+    await waitFor(() => expect(screen.getByText('success:1:')).not.toBeNull())
+
+    view.rerender(<HistoryProbe symbol="GGAL" range="1Y" />)
+
+    await waitFor(() =>
+      expect(screen.getByText('error:0:new range failed')).not.toBeNull()
+    )
+    expect(screen.getByTestId('history-close').textContent).toBe('')
+  })
+
+  it('rejects a response whose identity differs from the active request', async () => {
+    mocks.fetchStockHistory.mockResolvedValue(
+      historyResponse([{ date: '2026-05-01', close: 100 }], { range: '1W' })
+    )
+
+    renderWithSWR(<HistoryProbe symbol="GGAL" range="1Y" />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'error:0:La respuesta histórica no coincide con la solicitud activa.'
+        )
+      ).not.toBeNull()
+    )
   })
 
   it('polls while enabled and visible', async () => {

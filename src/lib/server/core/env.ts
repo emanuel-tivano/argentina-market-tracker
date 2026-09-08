@@ -1,5 +1,8 @@
 import 'server-only'
-import { normalizeServerUrl } from './serverUrl'
+import {
+  normalizeServerUrl,
+  normalizeUpstreamRelativePath,
+} from './serverUrl'
 
 export type MarketDataSource = 'demo' | 'live'
 const DEFAULT_FAVORITES_QUOTE_CONCURRENCY = 4
@@ -32,10 +35,6 @@ function required(name: string): string {
   }
 
   return value
-}
-
-function normalizePath(value: string): string {
-  return value.replace(/^\/+|\/+$/g, '')
 }
 
 function getMarketDataSource(): MarketDataSource {
@@ -185,6 +184,27 @@ export function getRuntimeEnvSummary() {
     }
   }
 
+  if (marketDataSource === 'live') {
+    const endpointValues = {
+      TOKEN_ENDPOINT: process.env.TOKEN_ENDPOINT ?? 'token',
+      PANEL_LIDER_ENDPOINT: process.env.PANEL_LIDER_ENDPOINT,
+      PANEL_GENERAL_ENDPOINT: process.env.PANEL_GENERAL_ENDPOINT,
+      PANEL_CEDEARS_ENDPOINT: process.env.PANEL_CEDEARS_ENDPOINT,
+    } as const
+
+    for (const [name, value] of Object.entries(endpointValues)) {
+      if (!value || missingLiveConfig.includes(name as (typeof LIVE_ENV_KEYS)[number])) {
+        continue
+      }
+
+      try {
+        normalizeUpstreamRelativePath(name, value)
+      } catch {
+        invalidLiveConfig.push(name)
+      }
+    }
+  }
+
   let rateLimitRedisConfigured = false
 
   if (
@@ -232,7 +252,10 @@ export const ENV = {
   },
 
   get TOKEN_ENDPOINT() {
-    return normalizePath(process.env.TOKEN_ENDPOINT ?? 'token')
+    return normalizeUpstreamRelativePath(
+      'TOKEN_ENDPOINT',
+      process.env.TOKEN_ENDPOINT ?? 'token'
+    )
   },
 
   get API_USERNAME() {
@@ -244,15 +267,24 @@ export const ENV = {
   },
 
   get PANEL_LIDER_ENDPOINT() {
-    return normalizePath(required('PANEL_LIDER_ENDPOINT'))
+    return normalizeUpstreamRelativePath(
+      'PANEL_LIDER_ENDPOINT',
+      required('PANEL_LIDER_ENDPOINT')
+    )
   },
 
   get PANEL_GENERAL_ENDPOINT() {
-    return normalizePath(required('PANEL_GENERAL_ENDPOINT'))
+    return normalizeUpstreamRelativePath(
+      'PANEL_GENERAL_ENDPOINT',
+      required('PANEL_GENERAL_ENDPOINT')
+    )
   },
 
   get PANEL_CEDEARS_ENDPOINT() {
-    return normalizePath(required('PANEL_CEDEARS_ENDPOINT'))
+    return normalizeUpstreamRelativePath(
+      'PANEL_CEDEARS_ENDPOINT',
+      required('PANEL_CEDEARS_ENDPOINT')
+    )
   },
 
   get NODE_ENV() {
@@ -299,12 +331,16 @@ export const ENV = {
     return optionalTrimmed('OBSERVABILITY_DEBUG_TOKEN')
   },
 
+  get LOCAL_DEBUG_TOKEN() {
+    return process.env.LOCAL_DEBUG_TOKEN ?? ''
+  },
+
   get APP_VERSION() {
     return optionalTrimmed('APP_VERSION') || optionalTrimmed('npm_package_version')
   },
 
   get FAVORITES_QUOTE_CONCURRENCY() {
-    return getBoundedIntegerEnv(
+    return getStrictBoundedIntegerEnv(
       'FAVORITES_QUOTE_CONCURRENCY',
       DEFAULT_FAVORITES_QUOTE_CONCURRENCY,
       {

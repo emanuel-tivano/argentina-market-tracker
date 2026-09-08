@@ -197,13 +197,22 @@ producción sin origen válido falla de forma explícita.
 | `PANEL_GENERAL_ENDPOINT` | Endpoint upstream del panel general. |
 | `PANEL_CEDEARS_ENDPOINT` | Endpoint upstream de CEDEARs. |
 
+Los cuatro endpoints configurables son paths relativos estrictos. Admiten
+rutas anidadas como `api/v2/panel/lider`, con o sin barras exteriores, pero
+rechazan URLs absolutas o protocol-relative, query, fragment, backslashes,
+caracteres de control, traversal (`.`/`..`) y sus variantes codificadas. Se
+resuelven debajo del pathname base de `API_URL` y la URL final conserva siempre
+su origin. Las requests OAuth y bearer usan `redirect: error`; el proveedor
+debe exponer directamente la URL HTTPS configurada.
+
 ### Operación y debug
 
 | Variable | Uso |
 | --- | --- |
 | `ENABLE_TOKEN_DEBUG` | Habilita debug local de token/raw fuera de producción. |
+| `LOCAL_DEBUG_TOKEN` | Credencial requerida mediante `x-local-debug-token` para `/api/token` y `/api/panel?raw=1`; nunca habilitada en producción. |
 | `OBSERVABILITY_DEBUG_TOKEN` | Protege `/api/debug/metrics` en producción. |
-| `FAVORITES_QUOTE_CONCURRENCY` | Límite `1-10` para fan-out de favoritos. |
+| `FAVORITES_QUOTE_CONCURRENCY` | Entero decimal estricto `1-10` para fan-out de favoritos; valores parciales usan el default `4`. |
 | `PANEL_CACHE_FRESH_TTL_MS` / `PANEL_CACHE_STALE_TTL_MS` | Ventana fresh y edad máxima del snapshot de panel; defaults `30s` / `2m`. |
 | `STOCK_QUOTE_FRESH_TTL_MS` / `STOCK_QUOTE_STALE_TTL_MS` | Ventana fresh y edad máxima compartidas por detalle y Favoritos; defaults `15s` / `2m`. |
 | `STOCK_QUOTE_NOT_FOUND_TTL_MS` | Caché negativa de un `404` confirmado; default `30s`, rango `1s-5m`. |
@@ -236,6 +245,7 @@ npm run dev:e2e          # desarrollo E2E en puerto 3100
 npm run lint             # ESLint
 npm run type-check       # TypeScript --noEmit
 npm run test             # Vitest
+npm run test:coverage    # Vitest con cobertura V8 y thresholds
 npm run build            # build de producción
 npm run validate:local   # lint + type-check + test + build
 npm run validate         # validación local + suite E2E
@@ -265,9 +275,14 @@ La estrategia valida comportamiento en distintos límites:
 - SSR inicial y metadata de activos
 - flujos interactivos y responsive con Playwright
 
-GitHub Actions ejecuta la validación en modo demo mediante
-[.github/workflows/ci.yml](./.github/workflows/ci.yml). No se fija aquí un
-número de tests para evitar que la documentación quede desactualizada.
+GitHub Actions ejecuta en modo demo tres jobs encadenados: `quality` instala,
+ejecuta lint, type-check y tests con cobertura; `build` valida el build de
+Next.js; `e2e` construye una vez y corre las suites SSR y app sobre Chromium.
+Las acciones están fijadas por SHA, los jobs tienen timeout y las ejecuciones
+obsoletas de una rama o PR se cancelan. Los thresholds globales de cobertura
+son statements `80`, lines `80`, functions `75` y branches `70`, con límites
+específicos de no regresión para módulos críticos. `coverage/` es generado y no
+se versiona.
 
 ## Estructura principal
 
@@ -312,7 +327,17 @@ manuales concurrentes.
 dependencias externas. `/api/health/ready` prueba Redis con `PING` cuando es
 requerido y devuelve `503` ante configuración insegura o dependencia no
 disponible. `/api/health` conserva HTTP `200` para diagnóstico y marca
-`degraded` una `API_URL` live inválida o una configuración Redis insegura.
+`degraded` una `API_URL`, `TOKEN_ENDPOINT`, `PANEL_LIDER_ENDPOINT`,
+`PANEL_GENERAL_ENDPOINT` o `PANEL_CEDEARS_ENDPOINT` live inválida, o una
+configuración Redis insegura. Sólo informa nombres de variables inválidas y no
+consulta al upstream.
+
+El histórico usa `cacheStatus: fresh` para una carga nueva,
+`cacheStatus: memory-cache` para un hit vigente y `cacheStatus: stale` para el
+fallback desactualizado. Las dos primeras variantes exigen `meta.stale: false`;
+la última exige `meta.stale: true`. Al cambiar rango, símbolo o mercado, la UI
+deja de mostrar los puntos y estadísticas anteriores y presenta loading/error
+hasta recibir una respuesta cuya identidad coincida con la solicitud activa.
 
 ## Modo demo y modo live
 
@@ -365,4 +390,4 @@ de portfolio técnico.
 
 Estas dos marcas son editoriales y no se renderizan en la interfaz. Para
 publicar los canales, reemplazá los valores `null` de
-`src/lib/authorContact.ts` por la URL completa de LinkedIn y el correo real.
+`LINKEDIN_URL` y `CONTACT_EMAIL` en `src/app/about/page.tsx` por los datos reales.

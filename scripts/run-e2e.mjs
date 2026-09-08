@@ -125,6 +125,7 @@ async function main() {
       env: withDefinedEnv({
         ...process.env,
         MARKET_DATA_SOURCE: process.env.MARKET_DATA_SOURCE ?? 'demo',
+        PLAYWRIGHT_E2E_MODE: mode,
         DISABLE_SERVER_DASHBOARD_PREFETCH:
           process.env.DISABLE_SERVER_DASHBOARD_PREFETCH ??
           (isSsrMode ? '0' : '1'),

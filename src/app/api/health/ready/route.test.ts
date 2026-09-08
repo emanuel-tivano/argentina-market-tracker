@@ -4,6 +4,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const OLD_ENV = { ...process.env }
 const REDIS_URL = 'https://redis.internal.example.test'
 const REDIS_TOKEN = 'redis-secret-token'
+const LIVE_CONFIG = {
+  API_URL: 'https://api.example.test',
+  API_USERNAME: 'user',
+  API_PASSWORD: 'password',
+  PANEL_LIDER_ENDPOINT: 'panel/lider',
+  PANEL_GENERAL_ENDPOINT: 'panel/general',
+  PANEL_CEDEARS_ENDPOINT: 'panel/cedears',
+} as const
 
 type Deferred<T> = {
   promise: Promise<T>
@@ -177,6 +185,124 @@ describe('/api/health/ready route', () => {
           required: false,
           status: 'not-required',
         },
+      },
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 503 when live configuration is missing API_PASSWORD', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { GET } = await loadRoute({
+      ...LIVE_CONFIG,
+      MARKET_DATA_SOURCE: 'live',
+      API_PASSWORD: undefined,
+      RATE_LIMIT_REDIS_REST_TOKEN: undefined,
+      RATE_LIMIT_REDIS_REST_URL: undefined,
+      RATE_LIMIT_STORE: 'memory',
+    })
+
+    const response = await GET(request())
+    const body = await response.json()
+
+    expect(response.status).toBe(503)
+    expect(body).toMatchObject({
+      status: 'not-ready',
+      dependencies: {
+        config: {
+          status: 'invalid-configuration',
+          marketDataSource: 'live',
+          missingLiveConfig: ['API_PASSWORD'],
+        },
+      },
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 503 when live configuration contains an invalid API URL', async () => {
+    const { GET } = await loadRoute({
+      ...LIVE_CONFIG,
+      MARKET_DATA_SOURCE: 'live',
+      API_URL: 'https://api.example.test?token=invalid',
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ result: 'PONG' })))
+
+    const response = await GET(request())
+    const body = await response.json()
+
+    expect(response.status).toBe(503)
+    expect(body.dependencies.config).toMatchObject({
+      status: 'invalid-configuration',
+      marketDataSource: 'live',
+      invalidLiveConfig: ['API_URL'],
+    })
+  })
+
+  it('returns 200 for valid demo configuration', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { GET } = await loadRoute({
+      MARKET_DATA_SOURCE: 'demo',
+      RATE_LIMIT_REDIS_REST_TOKEN: undefined,
+      RATE_LIMIT_REDIS_REST_URL: undefined,
+      RATE_LIMIT_STORE: 'memory',
+    })
+
+    const response = await GET(request())
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.dependencies.config).toMatchObject({
+      status: 'available',
+      marketDataSource: 'demo',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 200 for valid live configuration', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { GET } = await loadRoute({
+      ...LIVE_CONFIG,
+      MARKET_DATA_SOURCE: 'live',
+      RATE_LIMIT_REDIS_REST_TOKEN: undefined,
+      RATE_LIMIT_REDIS_REST_URL: undefined,
+      RATE_LIMIT_STORE: 'memory',
+    })
+
+    const response = await GET(request())
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.dependencies.config).toMatchObject({
+      status: 'available',
+      marketDataSource: 'live',
+      invalidLiveConfig: [],
+      missingLiveConfig: [],
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('does not report ready when live config and required Redis are both invalid', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { GET } = await loadRoute({
+      ...LIVE_CONFIG,
+      MARKET_DATA_SOURCE: 'live',
+      API_PASSWORD: undefined,
+      RATE_LIMIT_REDIS_REST_TOKEN: undefined,
+      RATE_LIMIT_STORE: 'redis-rest',
+    })
+
+    const response = await GET(request())
+    const body = await response.json()
+
+    expect(response.status).toBe(503)
+    expect(body).toMatchObject({
+      status: 'not-ready',
+      dependencies: {
+        config: { status: 'invalid-configuration' },
+        rateLimitStore: { required: true, status: 'not-configured' },
       },
     })
     expect(fetchMock).not.toHaveBeenCalled()

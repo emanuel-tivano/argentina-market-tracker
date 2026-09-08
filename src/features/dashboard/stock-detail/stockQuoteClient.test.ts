@@ -70,6 +70,31 @@ describe('stockQuoteClient freshness contract', () => {
     ).resolves.toEqual(cached)
   })
 
+  it('rejects a response whose root and data symbols differ', async () => {
+    const mismatched = quoteResponse({
+      data: {
+        ...quoteResponse().data,
+        symbol: 'AAPL',
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(mismatched)))
+
+    await expect(
+      fetchStockQuote('/api/stocks/GGAL/quote?market=bCBA')
+    ).rejects.toThrow('contrato de cotización inválido')
+  })
+
+  it('accepts case-only differences between root and data identity', async () => {
+    const response = quoteResponse({
+      symbol: 'ggal',
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(response)))
+
+    await expect(
+      fetchStockQuote('/api/stocks/GGAL/quote?market=bCBA')
+    ).resolves.toEqual(response)
+  })
+
   it.each([
     { cacheStatus: 'fresh', stale: false, degradationReason: 'upstream-unavailable' },
     { fetchedAt: '2026-02-30T15:00:00.000Z' },

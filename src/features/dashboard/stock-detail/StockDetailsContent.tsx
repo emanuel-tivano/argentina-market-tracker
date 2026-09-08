@@ -61,6 +61,20 @@ function getHistoryVariationClass(value: number | null): string {
     : 'stock-history-performance-negative'
 }
 
+function getDiscardedHistoryPointsMessage(
+  discardedPoints: number,
+  totalPoints: number
+): string {
+  const discardedCopy =
+    discardedPoints === 1
+      ? 'Se descartó 1 punto'
+      : `Se descartaron ${discardedPoints} puntos`
+  const displayedCopy =
+    totalPoints === 1 ? 'se muestra 1' : `se muestran ${totalPoints}`
+
+  return `${discardedCopy} del upstream; ${displayedCopy}.`
+}
+
 function HistorySection({
   stock,
   variant,
@@ -68,6 +82,7 @@ function HistorySection({
   onHistoryRangeChange,
   history,
   quoteDetail,
+  quoteSource,
 }: {
   stock: StockData
   variant: 'modal' | 'page'
@@ -82,8 +97,12 @@ function HistorySection({
     [history.points, quoteDetail, stock]
   )
   const syncedHistory = useMemo(
-    () => syncHistoryWithCurrentQuote(history.points, currentQuote),
-    [currentQuote, history.points]
+    () =>
+      syncHistoryWithCurrentQuote(history.points, currentQuote, {
+        now: new Date(),
+        quoteSource,
+      }),
+    [currentQuote, history.points, quoteSource]
   )
   const chartSeries = syncedHistory.points
   const normalizedHistoryPoints = useMemo(
@@ -97,18 +116,36 @@ function HistorySection({
   const periodVariation = periodMetrics?.periodVariation ?? null
   const periodVariationClass = getHistoryVariationClass(periodVariation)
   const historyDataStatus = history.meta
-    ? history.meta.stale
-      ? 'Stale'
-      : history.meta.source === 'demo'
-        ? 'Demo'
-        : 'Live'
+    ? [
+        history.meta.stale
+          ? 'Stale'
+          : history.meta.source === 'demo'
+            ? 'Demo'
+            : 'Live',
+        history.meta.source === 'live' &&
+        history.meta.resolvedVariant === 'sinAjustar'
+          ? 'Sin ajustar'
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
     : null
+  const isUnadjustedHistory =
+    history.meta?.source === 'live' &&
+    history.meta.resolvedVariant === 'sinAjustar'
   const historyMetaMessage =
     history.viewStatus === 'success' && history.meta
       ? history.meta.stale
-        ? 'Mostrando histórico cacheado por una falla temporal del upstream.'
+        ? isUnadjustedHistory
+          ? 'Mostrando histórico sin ajustar cacheado por una falla temporal del upstream.'
+          : 'Mostrando histórico cacheado por una falla temporal del upstream.'
+        : isUnadjustedHistory
+          ? 'Se está mostrando histórico sin ajustar porque no había histórico ajustado disponible.'
         : history.meta.discardedPoints > 0
-          ? `Se descartaron ${history.meta.discardedPoints} de ${history.meta.totalPoints} puntos del upstream.`
+          ? getDiscardedHistoryPointsMessage(
+              history.meta.discardedPoints,
+              history.meta.totalPoints
+            )
           : history.meta.source === 'demo'
             ? 'Serie histórica de demo determinística.'
             : null
@@ -236,6 +273,7 @@ function StockDetailsModalContent({ stock }: { stock: StockData }) {
         historyRange={historyRange}
         onHistoryRangeChange={setHistoryRange}
         history={history}
+        quoteSource={history.meta?.source ?? null}
       />
       <StockDetailsMetricGrid
         rows={secondaryRows}

@@ -61,6 +61,7 @@ Validación completa:
 ```bash
 npm run validate:local
 npm run validate
+npm run test:coverage
 ```
 
 Notas:
@@ -69,6 +70,7 @@ Notas:
 - `validate` corre `validate:local` y luego `test:e2e:run`.
 - `test:e2e`, `test:e2e:app` y `test:e2e:ssr` hacen `next build` antes de correr Playwright.
 - `test:e2e:run` ejecuta `scripts/run-e2e-suite.mjs`, que corre SSR E2E y luego E2E interactivo.
+- `test:coverage` corre Vitest con V8, thresholds globales y límites específicos para módulos críticos; `coverage/` es generado y no se versiona.
 - `deps:update` existe pero modifica lockfile y dependencias; no usarlo salvo pedido explícito.
 
 ## Variables de entorno esperadas
@@ -92,6 +94,8 @@ Live mode:
 - `PANEL_LIDER_ENDPOINT`
 - `PANEL_GENERAL_ENDPOINT`
 - `PANEL_CEDEARS_ENDPOINT`
+  - los cuatro endpoints son paths relativos estrictos, sin URL absoluta o protocol-relative, query, fragment, backslashes, traversal ni separadores/traversal codificados
+  - se resuelven dentro del origin y pathname base de `API_URL`
 
 Generales / despliegue:
 
@@ -101,6 +105,7 @@ Generales / despliegue:
 Debug / observabilidad:
 
 - `ENABLE_TOKEN_DEBUG`
+- `LOCAL_DEBUG_TOKEN`
 - `OBSERVABILITY_DEBUG_TOKEN`
 
 Rate limiting / operación:
@@ -116,6 +121,7 @@ Rate limiting / operación:
 Variables usadas en testing/dev controlado:
 
 - `PANEL_RESPONSE_FIXTURE_JSON`
+  - sólo se acepta con `NODE_ENV=test` o `PLAYWRIGHT_E2E_MODE=ssr`
 - `DISABLE_SERVER_DASHBOARD_PREFETCH`
 - `PLAYWRIGHT_TEST_BASE_URL`
 - `PLAYWRIGHT_E2E_MODE`
@@ -194,8 +200,8 @@ Rutas internas actuales:
 Notas importantes:
 
 - `/api/panel?refresh=1` fuerza bypass de cache y puede gatillar cooldown de refresh.
-- `/api/panel?raw=1` sólo está habilitado como debug local cuando `ENABLE_TOKEN_DEBUG=1` y el host es `localhost` / `127.0.0.1` / `::1`.
-- `/api/token` también es debug local-only bajo esas mismas restricciones.
+- `/api/panel?raw=1` sólo está habilitado fuera de producción cuando `ENABLE_TOKEN_DEBUG=1` y `x-local-debug-token` coincide con `LOCAL_DEBUG_TOKEN`.
+- `/api/token` también exige esas mismas condiciones de autorización explícita.
 - `/api/favorites` valida y deduplica items, aplica rate limiting y hace fan-out a quotes individuales con cache y concurrencia acotada.
 - `/api/health` expone diagnóstico compatible con HTTP `200`, incluso como `degraded` ante configuración live/Redis inválida.
 - `/api/health/live` es liveness sin dependencias externas; `/api/health/ready` prueba Redis cuando es requerido y devuelve `503` si su configuración es insegura o no está disponible.
@@ -210,8 +216,8 @@ Live/demo:
 
 Integración server:
 
-- `src/lib/server/upstream/iol.ts` maneja OAuth, timeout, `cache: 'no-store'`, sanitización básica y retry único ante `401/403`.
-- `src/lib/server/core/env.ts` valida URLs sensibles, normaliza base URL/endpoints y resuelve variables operativas.
+- `src/lib/server/upstream/iol.ts` maneja OAuth, timeout, `cache: 'no-store'`, `redirect: 'error'`, sanitización básica y retry único ante `401/403`.
+- `src/lib/server/core/env.ts` valida URLs sensibles y endpoints relativos, normaliza la base URL y resuelve variables operativas.
 - `src/lib/server/panel/panelCache.ts` usa cache en memoria por panel con TTL de `30s`.
 - `src/lib/server/history/historyCache.ts` usa cache en memoria por `market:symbol:range` con TTL de `5m` y máximo `500` claves.
 - `src/lib/server/upstream/quoteCache.ts` cachea quotes de favoritos y soporta stale fallback con `STOCK_QUOTE_FRESH_TTL_MS` / `STOCK_QUOTE_STALE_TTL_MS`, igual que la caché de detalle en `src/lib/server/quote/quoteCache.ts`.
@@ -230,7 +236,7 @@ Rate limiting:
 - Nunca mover `API_USERNAME`, `API_PASSWORD` ni tokens OAuth al cliente.
 - No exponer token completo en respuestas, UI, logs, snapshots ni docs.
 - No exponer `RATE_LIMIT_REDIS_REST_TOKEN`, `OBSERVABILITY_DEBUG_TOKEN` ni valores reales de `.env.local`.
-- `ENABLE_TOKEN_DEBUG=1` sólo habilita debug fuera de producción y desde `localhost` / `127.0.0.1` / `::1`.
+- `ENABLE_TOKEN_DEBUG=1` sólo habilita debug fuera de producción y requiere `LOCAL_DEBUG_TOKEN` mediante `x-local-debug-token`.
 - `/api/debug/metrics` en producción no debe quedar abierto sin token.
 - Mantener `runtime = 'nodejs'` al tocar handlers con integración server-side; hoy está explícito en `panel`, `favorites`, `history`, `health` y `debug/metrics`.
 - Respetar headers y CSP definidos por `middleware.ts` y `next.config.mjs`.
@@ -244,6 +250,8 @@ Rate limiting:
 - `useFavoritePanel` usa un patrón similar para `/api/favorites`, pero su key y polling sólo están habilitados cuando el panel Favoritos está activo.
 - `StockDetailsModal` se carga con `next/dynamic` y `ssr: false`; no romper esa carga diferida salvo motivo claro.
 - El histórico usa `lightweight-charts`; tratarlo como componente relativamente pesado.
+- `useStockHistory` no conserva puntos de una key anterior al cambiar símbolo, mercado o rango; sólo acepta respuestas cuya identidad coincide con la solicitud activa.
+- El histórico usa `fresh`/`memory-cache` con `meta.stale: false` y `stale` con `meta.stale: true`.
 - Mantener estados explícitos de loading, error, empty, stale y success.
 - Favoritos, tema y orden viven del lado cliente; no mezclar esa lógica con server code.
 - En demo mode la UI muestra badge `Demo data`.
@@ -251,9 +259,10 @@ Rate limiting:
 ## Testing y validación
 
 - Unit, component, hook y route tests corren con `npm run test` mediante Vitest.
+- `npm run test:coverage` agrega cobertura V8; thresholds globales: statements/lines `80`, functions `75`, branches `70`, más límites específicos de módulos críticos.
 - E2E corren con Playwright sobre `http://localhost:3100` por default vía `scripts/run-e2e.mjs`.
 - Existe cobertura SSR específica con `npm run test:e2e:ssr`.
-- CI corre `npm run validate` en GitHub Actions con Node `24.15.0`, `MARKET_DATA_SOURCE=demo` y `NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3100`.
+- CI usa jobs `quality`, `build` y `e2e`, acciones fijadas por SHA, permisos read-only, cancelación de ejecuciones obsoletas y Node `24.15.0`; `quality` bloquea vulnerabilidades de producción con `npm audit --omit=dev` y corre en demo con `NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3100`.
 
 Antes de dar por válido un cambio de código, correr como mínimo:
 

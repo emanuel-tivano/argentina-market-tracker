@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   isMarketPanelKey,
@@ -30,10 +30,9 @@ export function useDashboardPanelState({
     );
 
   const isFavoritesPanel = activePanelKey === 'favorites';
-  const dataPanelKey = useMemo(
-    () => (isFavoritesPanel ? favoritesSourcePanelKey : activePanelKey),
-    [activePanelKey, favoritesSourcePanelKey, isFavoritesPanel],
-  );
+  const dataPanelKey = isFavoritesPanel
+    ? favoritesSourcePanelKey
+    : activePanelKey;
 
   const handlePanelChange = useCallback((key: MarketPanelKey) => {
     const nextParams = new URLSearchParams(searchParams.toString());

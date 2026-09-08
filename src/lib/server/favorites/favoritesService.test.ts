@@ -203,6 +203,38 @@ describe('favoritesService', () => {
     expect(getQuoteBySymbol).toHaveBeenCalledTimes(1)
   })
 
+  it('timestamps a live quote after fetch completion and preserves it in cache', async () => {
+    const quote = deferred<ReturnType<typeof quoteResponse>>()
+    const getQuoteBySymbol = vi.fn(() => quote.promise)
+    const { getFavoritesResponse } = await loadFavoritesService(getQuoteBySymbol)
+    const items = [{ market: 'bCBA' as const, symbol: 'ALUA' }]
+
+    const responsePromise = getFavoritesResponse(items, {
+      bypassCache: false,
+      rateLimitIdentity: TEST_IDENTITY,
+      requestId: 'req-12345678',
+    })
+
+    await vi.waitFor(() => expect(getQuoteBySymbol).toHaveBeenCalledTimes(1))
+    vi.setSystemTime(new Date('2026-05-27T18:00:05.000Z'))
+    quote.resolve(quoteResponse('ALUA'))
+
+    const fresh = await responsePromise
+
+    expect(fresh.updatedAt).toBe('2026-05-27T18:00:05.000Z')
+
+    vi.setSystemTime(new Date('2026-05-27T18:00:10.000Z'))
+    const cached = await getFavoritesResponse(items, {
+      bypassCache: false,
+      rateLimitIdentity: TEST_IDENTITY,
+      requestId: 'req-12345678',
+    })
+
+    expect(cached.updatedAt).toBe('2026-05-27T18:00:05.000Z')
+    expect(cached.servedAt).toBe('2026-05-27T18:00:10.000Z')
+    expect(getQuoteBySymbol).toHaveBeenCalledTimes(1)
+  })
+
   it('uses a service timestamp instead of epoch for empty favorites', async () => {
     const getQuoteBySymbol = vi.fn()
     const { getFavoritesResponse } = await loadFavoritesService(getQuoteBySymbol)

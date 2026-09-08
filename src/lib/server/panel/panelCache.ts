@@ -44,6 +44,15 @@ function getFixturePanelResponse(
     return null
   }
 
+  const fixtureAllowed =
+    ENV.NODE_ENV === 'test' || process.env.PLAYWRIGHT_E2E_MODE === 'ssr'
+
+  if (!fixtureAllowed) {
+    throw new Error(
+      'PANEL_RESPONSE_FIXTURE_JSON is allowed only in test or explicit SSR E2E mode'
+    )
+  }
+
   let parsedFixture: unknown
 
   try {

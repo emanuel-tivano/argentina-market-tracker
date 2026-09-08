@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { type MarketDataPanelKey } from '@/lib/market';
 import {
   normalizeFavoriteIdentities,
@@ -17,6 +17,16 @@ export const FAVORITE_STOCK_SNAPSHOTS_STORAGE_KEY =
   'argentina-market-tracker:favorite-stock-snapshots';
 
 type SafeStorage = Pick<Storage, 'getItem' | 'setItem'>;
+type ToggleFavoriteOptions = {
+  market?: FavoriteStockIdentity['market'];
+  sourcePanel?: MarketDataPanelKey;
+};
+
+type FavoriteStocksState = {
+  items: FavoriteStockIdentity[];
+  snapshotsByTicker: Record<string, StockData>;
+  didLoad: boolean;
+};
 
 function getStorage(): SafeStorage | null {
   try {
@@ -131,21 +141,52 @@ function readStoredFavoriteSnapshots(): Record<string, StockData> {
   }
 }
 
+function toggleFavoriteIdentity(
+  items: FavoriteStockIdentity[],
+  symbol: string,
+  options: ToggleFavoriteOptions,
+) {
+  const existingIndex = items.findIndex((item) => item.symbol === symbol);
+  const isRemoving = existingIndex >= 0;
+  const nextItems = isRemoving
+    ? items.filter((_, index) => index !== existingIndex)
+    : [
+        ...items,
+        {
+          symbol,
+          market: options.market ?? DEFAULT_STOCK_HISTORY_MARKET,
+          ...(options.sourcePanel ? { sourcePanel: options.sourcePanel } : {}),
+        },
+      ];
+
+  return {
+    isRemoving,
+    items: nextItems.sort((left, right) =>
+      left.symbol.localeCompare(right.symbol),
+    ),
+  };
+}
+
 export function useFavoriteStocks() {
-  const [favoriteItems, setFavoriteItems] = useState<FavoriteStockIdentity[]>([]);
-  const [favoriteSnapshotsByTicker, setFavoriteSnapshotsByTicker] = useState<
-    Record<string, StockData>
-  >({});
-  const [didLoad, setDidLoad] = useState(false);
-  const favoriteItemsRef = useRef<FavoriteStockIdentity[]>([]);
-  const favoriteSnapshotsRef = useRef<Record<string, StockData>>({});
+  const [state, setState] = useState<FavoriteStocksState>({
+    items: [],
+    snapshotsByTicker: {},
+    didLoad: false,
+  });
+  const {
+    items: favoriteItems,
+    snapshotsByTicker: favoriteSnapshotsByTicker,
+    didLoad,
+  } = state;
 
   useEffect(() => {
     // localStorage is only available after client mount.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setFavoriteItems(readStoredFavorites());
-    setFavoriteSnapshotsByTicker(readStoredFavoriteSnapshots());
-    setDidLoad(true);
+    setState({
+      items: readStoredFavorites(),
+      snapshotsByTicker: readStoredFavoriteSnapshots(),
+      didLoad: true,
+    });
   }, []);
 
   useEffect(() => {
@@ -161,14 +202,6 @@ export function useFavoriteStocks() {
     );
   }, [didLoad, favoriteItems, favoriteSnapshotsByTicker]);
 
-  useEffect(() => {
-    favoriteItemsRef.current = favoriteItems;
-  }, [favoriteItems]);
-
-  useEffect(() => {
-    favoriteSnapshotsRef.current = favoriteSnapshotsByTicker;
-  }, [favoriteSnapshotsByTicker]);
-
   const favorites = useMemo(
     () => favoriteItems.map((item) => item.symbol),
     [favoriteItems]
@@ -182,35 +215,17 @@ export function useFavoriteStocks() {
 
   const toggleFavorite = useCallback((
     ticker: string,
-    options: {
-      market?: FavoriteStockIdentity['market']
-      sourcePanel?: MarketDataPanelKey
-    } = {}
+    options: ToggleFavoriteOptions = {},
   ) => {
     const normalizedTicker = normalizeFavoriteSymbol(ticker);
 
     if (!normalizedTicker) return;
 
-    setFavoriteItems((currentFavorites) => {
-      const nextFavorites = [...currentFavorites];
-      const existingIndex = nextFavorites.findIndex(
-        (item) => item.symbol === normalizedTicker
-      );
-
-      if (existingIndex >= 0) {
-        nextFavorites.splice(existingIndex, 1);
-      } else {
-        nextFavorites.push({
-          symbol: normalizedTicker,
-          market: options.market ?? DEFAULT_STOCK_HISTORY_MARKET,
-          ...(options.sourcePanel ? { sourcePanel: options.sourcePanel } : {}),
-        });
-      }
-
-      return nextFavorites.sort((left, right) =>
-        left.symbol.localeCompare(right.symbol)
-      );
-    });
+    setState((current) => ({
+      ...current,
+      items: toggleFavoriteIdentity(current.items, normalizedTicker, options)
+        .items,
+    }));
   }, []);
 
   const addFavoriteSnapshot = useCallback((stock: StockData) => {
@@ -218,9 +233,12 @@ export function useFavoriteStocks() {
 
     if (!snapshot) return;
 
-    setFavoriteSnapshotsByTicker((currentSnapshots) => ({
-      ...currentSnapshots,
-      [snapshot.ticker]: snapshot,
+    setState((current) => ({
+      ...current,
+      snapshotsByTicker: {
+        ...current.snapshotsByTicker,
+        [snapshot.ticker]: snapshot,
+      },
     }));
   }, []);
 
@@ -229,67 +247,41 @@ export function useFavoriteStocks() {
 
     if (!normalizedTicker) return;
 
-    setFavoriteSnapshotsByTicker((currentSnapshots) => {
-      if (!(normalizedTicker in currentSnapshots)) return currentSnapshots;
+    setState((current) => {
+      if (!(normalizedTicker in current.snapshotsByTicker)) return current;
 
-      const nextSnapshots = { ...currentSnapshots };
+      const snapshotsByTicker = { ...current.snapshotsByTicker };
 
-      delete nextSnapshots[normalizedTicker];
+      delete snapshotsByTicker[normalizedTicker];
 
-      return nextSnapshots;
+      return { ...current, snapshotsByTicker };
     });
   }, []);
 
   const toggleFavoriteStock = useCallback((
     stock: StockData,
-    options: {
-      market?: FavoriteStockIdentity['market']
-      sourcePanel?: MarketDataPanelKey
-    } = {}
+    options: ToggleFavoriteOptions = {},
   ) => {
     const snapshot = normalizeFavoriteSnapshot(stock);
 
     if (!snapshot) return;
 
-    const currentFavorites = favoriteItemsRef.current;
-    const nextFavorites = [...currentFavorites];
-    const existingIndex = nextFavorites.findIndex(
-      (item) => item.symbol === snapshot.ticker
-    );
-    const isCurrentlyFavorite = existingIndex >= 0;
+    setState((current) => {
+      const { items, isRemoving } = toggleFavoriteIdentity(
+        current.items,
+        snapshot.ticker,
+        options,
+      );
+      const snapshotsByTicker = { ...current.snapshotsByTicker };
 
-    if (isCurrentlyFavorite) {
-      nextFavorites.splice(existingIndex, 1);
-    } else {
-      nextFavorites.push({
-        symbol: snapshot.ticker,
-        market: options.market ?? DEFAULT_STOCK_HISTORY_MARKET,
-        ...(options.sourcePanel ? { sourcePanel: options.sourcePanel } : {}),
-      });
-    }
-
-    const nextFavoritesList = nextFavorites.sort((left, right) =>
-      left.symbol.localeCompare(right.symbol)
-    );
-    const currentSnapshots = favoriteSnapshotsRef.current;
-    let nextSnapshots = currentSnapshots;
-
-    if (isCurrentlyFavorite) {
-      if (snapshot.ticker in currentSnapshots) {
-        nextSnapshots = { ...currentSnapshots };
-        delete nextSnapshots[snapshot.ticker];
+      if (isRemoving) {
+        delete snapshotsByTicker[snapshot.ticker];
+      } else {
+        snapshotsByTicker[snapshot.ticker] = snapshot;
       }
-    } else {
-      nextSnapshots = {
-        ...currentSnapshots,
-        [snapshot.ticker]: snapshot,
-      };
-    }
 
-    favoriteItemsRef.current = nextFavoritesList;
-    favoriteSnapshotsRef.current = nextSnapshots;
-    setFavoriteItems(nextFavoritesList);
-    setFavoriteSnapshotsByTicker(nextSnapshots);
+      return { ...current, items, snapshotsByTicker };
+    });
   }, []);
 
   return {

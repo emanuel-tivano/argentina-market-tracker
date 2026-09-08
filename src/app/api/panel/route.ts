@@ -1,5 +1,8 @@
 import type { NextRequest } from 'next/server'
+import { isMarketDataPanelKey, type MarketDataPanelKey } from '@/lib/market'
+import type { PanelErrorCode, PanelErrorResponse } from '@/lib/panel'
 import { ENV } from '@/lib/server/core/env'
+import { canUseLocalDebug } from '@/lib/server/core/debug'
 import { getDemoPanelData } from '@/lib/server/demo/demoMarketData'
 import { iolFetch } from '@/lib/server/upstream/iol'
 import {
@@ -7,7 +10,7 @@ import {
   getSafeErrorDetails,
   incrementMetricCounter,
   logServerError,
-  recordMetricDuration,
+  recordApiRequest,
   withRequestIdHeaders,
 } from '@/lib/server/core/observability'
 import { getPanelEndpoint } from '@/lib/server/panel/panelEndpoint'
@@ -21,13 +24,7 @@ import {
   checkPanelRefreshCooldown,
   clearPanelLimitsForTests,
 } from '@/lib/server/panel/panelLimits'
-import {
-  getPanelType,
-  shouldBypassPanelCache,
-  shouldReturnRawPanelData,
-} from '@/lib/server/panel/panelRequest'
 import { jsonResponse } from '@/lib/server/core/httpResponse'
-import { panelErrorResponse } from '@/lib/server/panel/panelResponse'
 import { getRetryAfterHeaders, safeCheckRateLimit } from '@/lib/server/core/rateLimit'
 
 export const dynamic = 'force-dynamic'
@@ -36,22 +33,46 @@ export const runtime = 'nodejs'
 
 const PANEL_ROUTE = '/api/panel'
 
+function getPanelType(
+  req: NextRequest
+): { ok: true; type: MarketDataPanelKey } | { ok: false } {
+  const type = req.nextUrl.searchParams.get('type')
+
+  if (type === null) {
+    return { ok: true, type: 'lider' }
+  }
+
+  return isMarketDataPanelKey(type) ? { ok: true, type } : { ok: false }
+}
+
+function panelErrorResponse(
+  error: PanelErrorCode,
+  init: ResponseInit,
+  details?: string,
+  requestId?: string
+) {
+  const body: PanelErrorResponse = {
+    ok: false,
+    error,
+    ...(requestId ? { requestId } : {}),
+    ...(details ? { details } : {}),
+  }
+
+  return jsonResponse(body, init, requestId)
+}
+
 function recordPanelRequest(
   startedAt: number,
   status: number,
   outcome: string,
   source: string
 ) {
-  incrementMetricCounter('api.request.total', 1, {
+  recordApiRequest({
     endpoint: PANEL_ROUTE,
     method: 'GET',
     outcome,
     source,
-    status,
-  })
-  recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-    endpoint: PANEL_ROUTE,
-    method: 'GET',
+    startedAt,
     status,
   })
 }
@@ -92,8 +113,9 @@ export async function GET(req: NextRequest) {
   }
 
   const type = panelType.type
-  const shouldReturnRaw = shouldReturnRawPanelData(req)
-  const bypassCache = shouldBypassPanelCache(req)
+  const shouldReturnRaw =
+    canUseLocalDebug(req) && req.nextUrl.searchParams.get('raw') === '1'
+  const bypassCache = req.nextUrl.searchParams.get('refresh') === '1'
   const rateLimitCheck = await safeCheckRateLimit(() => checkPanelRateLimit(req), {
     requestId,
     route: PANEL_ROUTE,
@@ -207,7 +229,7 @@ export async function GET(req: NextRequest) {
 
 export function POST(req: NextRequest) {
   const requestId = getRequestId(req)
-  incrementMetricCounter('api.request.total', 1, {
+  recordApiRequest({
     endpoint: PANEL_ROUTE,
     method: 'POST',
     outcome: 'method-not-allowed',

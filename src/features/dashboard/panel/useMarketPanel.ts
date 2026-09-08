@@ -18,12 +18,6 @@ type UseMarketPanelOptions = {
   initialPanelKey?: MarketDataPanelKey;
 };
 
-function withRefreshParam(url: string): string {
-  const separator = url.includes('?') ? '&' : '?';
-
-  return `${url}${separator}refresh=1`;
-}
-
 export function useMarketPanel(
   activePanelKey: MarketDataPanelKey,
   options: UseMarketPanelOptions = {},
@@ -67,7 +61,6 @@ export function useMarketPanel(
     fetcher: fetchMarketPanel,
     key: fetchUrl,
     mutate,
-    withRefreshParam,
   });
 
   const rows = useMemo(

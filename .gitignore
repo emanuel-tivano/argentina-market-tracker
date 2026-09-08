@@ -32,7 +32,7 @@ bun-debug.log*
 # TypeScript
 *.tsbuildinfo
 
-# testing / coverage
+# generated test and coverage reports
 coverage/
 .nyc_output/
 .vitest/

@@ -358,6 +358,25 @@ describe('live session candles', () => {
 })
 
 describe('syncHistoryWithCurrentQuote', () => {
+  it('resolves full timestamps using the Argentina market date', () => {
+    const currentQuote = resolveCurrentStockQuote(
+      {
+        ...snapshot,
+        price: 994.5,
+        quoteDate: '2026-06-25T01:30:00.000Z',
+      },
+      []
+    )
+    const result = syncHistoryWithCurrentQuote(
+      [{ date: '2026-06-24', open: 991, high: 996, low: 989, close: 993.5 }],
+      currentQuote
+    )
+
+    expect(result.points).toEqual([
+      expect.objectContaining({ date: '2026-06-24', close: 994.5 }),
+    ])
+  })
+
   it('updates the latest same-day point with the current snapshot price', () => {
     const currentQuote = resolveCurrentStockQuote(
       {

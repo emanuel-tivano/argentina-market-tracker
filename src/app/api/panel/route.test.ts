@@ -29,8 +29,11 @@ function request(path: string, init?: ConstructorParameters<typeof NextRequest>[
   return new NextRequest(`http://localhost${path}`, init)
 }
 
-function remoteRequest(path: string) {
-  return new NextRequest(`https://preview.example.test${path}`)
+function remoteRequest(
+  path: string,
+  init?: ConstructorParameters<typeof NextRequest>[1]
+) {
+  return new NextRequest(`https://preview.example.test${path}`, init)
 }
 
 function expectPanelSuccess(
@@ -916,7 +919,7 @@ describe('/api/panel route', () => {
     expect(iolFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('does not expose raw upstream payloads from non-local debug requests', async () => {
+  it('does not expose raw upstream payloads without explicit debug authorization', async () => {
     const iolFetch = vi.fn().mockResolvedValue([
       {
         simbolo: 'GGAL',
@@ -926,6 +929,7 @@ describe('/api/panel route', () => {
     ])
     const { GET } = await loadLiveRoute(iolFetch, 'development')
     process.env.ENABLE_TOKEN_DEBUG = '1'
+    process.env.LOCAL_DEBUG_TOKEN = 'panel-debug-token'
 
     const response = await GET(remoteRequest('/api/panel?type=lider&raw=1'))
     const body = await response.json()
@@ -936,12 +940,17 @@ describe('/api/panel route', () => {
     expect(iolFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('allows raw upstream payloads only for local debug requests', async () => {
+  it('allows raw upstream payloads with explicit authorization regardless of host', async () => {
     const iolFetch = vi.fn().mockResolvedValue({ upstream: true })
     const { GET } = await loadLiveRoute(iolFetch, 'development')
     process.env.ENABLE_TOKEN_DEBUG = '1'
+    process.env.LOCAL_DEBUG_TOKEN = 'panel-debug-token'
 
-    const response = await GET(request('/api/panel?type=lider&raw=1'))
+    const response = await GET(
+      remoteRequest('/api/panel?type=lider&raw=1', {
+        headers: { 'x-local-debug-token': 'panel-debug-token' },
+      })
+    )
     const body = await response.json()
 
     expect(body).toEqual({
@@ -1075,6 +1084,25 @@ describe('/api/panel route', () => {
     expect(iolFetch).not.toHaveBeenCalled()
   })
 
+  it('rejects an unsafe configured panel endpoint before upstream access', async () => {
+    const iolFetch = vi.fn()
+    const { GET } = await loadLiveRoute(iolFetch, 'test', {
+      PANEL_LIDER_ENDPOINT: 'https://attacker.example/private-panel',
+    })
+
+    const response = await GET(request('/api/panel?type=lider'))
+    const body = await response.json()
+
+    expect(response.status).toBe(502)
+    expect(body).toMatchObject({
+      ok: false,
+      error: 'PANEL_ERROR',
+      details: expect.stringContaining('PANEL_LIDER_ENDPOINT'),
+    })
+    expect(JSON.stringify(body)).not.toContain('attacker.example')
+    expect(iolFetch).not.toHaveBeenCalled()
+  })
+
   it('can be imported without required env vars during build-time analysis', async () => {
     const iolFetch = vi.fn()
 
@@ -1105,6 +1133,57 @@ describe('/api/panel route', () => {
     expect(response.headers.get('X-Request-Id')).toMatch(/^[A-Za-z0-9._:-]{8,128}$/)
     expect(iolFetch).not.toHaveBeenCalled()
   })
+
+  it('allows the panel fixture in NODE_ENV=test', async () => {
+    const { GET, iolFetch } = await loadDemoRoute('test', {
+      PANEL_RESPONSE_FIXTURE_JSON: JSON.stringify({
+        lider: [{ simbolo: 'TEST', descripcion: 'Test fixture' }],
+      }),
+    })
+
+    const response = await GET(request('/api/panel?type=lider'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.data).toEqual([{ simbolo: 'TEST', descripcion: 'Test fixture' }])
+    expect(iolFetch).not.toHaveBeenCalled()
+  })
+
+  it('allows the panel fixture in explicit SSR E2E mode', async () => {
+    const { GET, iolFetch } = await loadDemoRoute('production', {
+      PLAYWRIGHT_E2E_MODE: 'ssr',
+      PANEL_RESPONSE_FIXTURE_JSON: JSON.stringify({
+        lider: [{ simbolo: 'SSR', descripcion: 'SSR fixture' }],
+      }),
+    })
+
+    const response = await GET(request('/api/panel?type=lider'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.data).toEqual([{ simbolo: 'SSR', descripcion: 'SSR fixture' }])
+    expect(iolFetch).not.toHaveBeenCalled()
+  })
+
+  it.each(['production', 'development'] as const)(
+    'rejects the panel fixture in ordinary %s runtime',
+    async (nodeEnv) => {
+      const { GET, iolFetch } = await loadDemoRoute(nodeEnv, {
+        PLAYWRIGHT_E2E_MODE: 'default',
+        PANEL_RESPONSE_FIXTURE_JSON: JSON.stringify({
+          lider: [{ simbolo: 'NOPE', descripcion: 'Disallowed fixture' }],
+        }),
+      })
+
+      const response = await GET(request('/api/panel?type=lider'))
+      const body = await response.json()
+
+      expect(response.status).toBe(502)
+      expect(body).toMatchObject({ ok: false, error: 'PANEL_ERROR' })
+      expect(body.data).toBeUndefined()
+      expect(iolFetch).not.toHaveBeenCalled()
+    }
+  )
 
   it('does not expose error details in production', async () => {
     const iolFetch = vi.fn().mockRejectedValue(new Error('secret upstream detail'))

@@ -36,7 +36,7 @@ function isSafeTokenType(value: unknown): value is string {
   )
 }
 
-// Debug local only: never expose full OAuth tokens from this route.
+// Explicitly authorized non-production debug only: never expose full OAuth tokens.
 export async function GET(req: NextRequest) {
   const requestId = getRequestId(req)
 

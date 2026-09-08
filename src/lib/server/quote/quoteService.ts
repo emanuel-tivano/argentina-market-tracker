@@ -29,6 +29,7 @@ import {
   QuoteUpstreamBudgetError,
 } from '@/lib/server/quote/protectedQuoteLookup'
 import {
+  hasMatchingStockQuoteIdentity,
   normalizeStockQuoteDetail,
   StockQuoteNormalizationError,
   type StockQuoteSuccessResponse,
@@ -72,6 +73,12 @@ async function fetchStockQuoteResponse(
 
   const payload = await iolFetch(getQuoteDetailEndpoint(market, symbol))
   const data = normalizeStockQuoteDetail(payload, symbol)
+
+  if (!hasMatchingStockQuoteIdentity(data, symbol, market)) {
+    throw new StockQuoteNormalizationError(
+      'Upstream quote identity does not match the requested quote'
+    )
+  }
 
   return {
     data,

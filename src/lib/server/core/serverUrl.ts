@@ -2,6 +2,111 @@ import 'server-only'
 
 export type ServerUrlHttpPolicy = 'public-origin' | 'sensitive'
 
+const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/
+const ABSOLUTE_URL_PATTERN = /^[a-z][a-z\d+.-]*:/i
+
+function invalidUpstreamPath(variableName: string): never {
+  throw new Error(`${variableName} must be a safe relative upstream path`)
+}
+
+function validateDecodedPathSegment(
+  variableName: string,
+  segment: string
+): void {
+  if (
+    !segment ||
+    segment === '.' ||
+    segment === '..' ||
+    CONTROL_CHARACTER_PATTERN.test(segment) ||
+    /[\\/?#@:]/.test(segment)
+  ) {
+    invalidUpstreamPath(variableName)
+  }
+}
+
+function validateEncodedPathSegment(
+  variableName: string,
+  segment: string
+): void {
+  let decoded = segment
+
+  for (let depth = 0; depth < 10; depth += 1) {
+    validateDecodedPathSegment(variableName, decoded)
+
+    let next: string
+
+    try {
+      next = decodeURIComponent(decoded)
+    } catch {
+      invalidUpstreamPath(variableName)
+    }
+
+    if (next === decoded) {
+      return
+    }
+
+    decoded = next
+  }
+
+  invalidUpstreamPath(variableName)
+}
+
+export function normalizeUpstreamRelativePath(
+  variableName: string,
+  value: string
+): string {
+  if (
+    !value ||
+    value.trim() !== value ||
+    /\s/.test(value) ||
+    CONTROL_CHARACTER_PATTERN.test(value) ||
+    value.includes('\\') ||
+    value.includes('?') ||
+    value.includes('#') ||
+    ABSOLUTE_URL_PATTERN.test(value) ||
+    value.startsWith('//')
+  ) {
+    invalidUpstreamPath(variableName)
+  }
+
+  const normalized = value.replace(/^\/+|\/+$/g, '')
+  const segments = normalized.split('/')
+
+  if (!normalized || segments.some((segment) => !segment)) {
+    invalidUpstreamPath(variableName)
+  }
+
+  for (const segment of segments) {
+    validateEncodedPathSegment(variableName, segment)
+  }
+
+  return segments.join('/')
+}
+
+export function buildUpstreamUrl(
+  apiBaseUrl: string,
+  variableName: string,
+  relativePath: string
+): string {
+  const baseUrl = new URL(apiBaseUrl)
+  const normalizedPath = normalizeUpstreamRelativePath(
+    variableName,
+    relativePath
+  )
+  const basePathname = baseUrl.pathname.replace(/\/+$/, '')
+  const expectedPathname = `${basePathname}/${normalizedPath}`
+  const resolved = new URL(expectedPathname, baseUrl.origin)
+
+  if (
+    resolved.origin !== baseUrl.origin ||
+    resolved.pathname !== expectedPathname
+  ) {
+    invalidUpstreamPath(variableName)
+  }
+
+  return resolved.toString()
+}
+
 export function isLoopbackHostname(hostname: string): boolean {
   return (
     hostname === 'localhost' ||

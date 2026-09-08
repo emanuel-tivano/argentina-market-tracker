@@ -1,10 +1,12 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { AUTHOR_CONTACT } from '@/lib/authorContact'
 import { ENV } from '@/lib/server/core/env'
 
 const REPOSITORY_URL =
   'https://github.com/emanuel-tivano/argentina-market-tracker'
+// Completar antes de publicar estos canales profesionales.
+const LINKEDIN_URL: string | null = null
+const CONTACT_EMAIL: string | null = null
 
 export const metadata: Metadata = {
   title: 'Emanuel Tivano y el proyecto',
@@ -78,7 +80,7 @@ export default function AboutPage() {
   const isDemoMode = ENV.MARKET_DATA_SOURCE === 'demo'
   const modeLabel = isDemoMode ? 'Modo demo activo' : 'Modo live activo'
   const hasAdditionalContact =
-    AUTHOR_CONTACT.linkedinUrl !== null || AUTHOR_CONTACT.email !== null
+    LINKEDIN_URL !== null || CONTACT_EMAIL !== null
 
   return (
     <main className="about-page">
@@ -221,11 +223,11 @@ export default function AboutPage() {
                 Repositorio de Argentina Market Tracker
               </a>
             </li>
-            {AUTHOR_CONTACT.linkedinUrl && (
+            {LINKEDIN_URL && (
               <li>
                 <strong>LinkedIn:</strong>{' '}
                 <a
-                  href={AUTHOR_CONTACT.linkedinUrl}
+                  href={LINKEDIN_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -233,11 +235,11 @@ export default function AboutPage() {
                 </a>
               </li>
             )}
-            {AUTHOR_CONTACT.email && (
+            {CONTACT_EMAIL && (
               <li>
                 <strong>Correo profesional:</strong>{' '}
-                <a href={`mailto:${AUTHOR_CONTACT.email}`}>
-                  {AUTHOR_CONTACT.email}
+                <a href={`mailto:${CONTACT_EMAIL}`}>
+                  {CONTACT_EMAIL}
                 </a>
               </li>
             )}

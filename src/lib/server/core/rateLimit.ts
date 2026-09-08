@@ -403,6 +403,7 @@ async function runRedisRestCommand<T>(
       },
       body: JSON.stringify(command),
       cache: 'no-store',
+      redirect: 'error',
       signal,
     })
   } catch (error: unknown) {

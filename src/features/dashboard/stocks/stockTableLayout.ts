@@ -1,7 +1,4 @@
-export const STOCK_GRID_LAYOUT = [
-  'text-left',
-  'whitespace-nowrap',
-].join(' ')
+export const STOCK_GRID_LAYOUT = 'text-left whitespace-nowrap'
 
 export const STOCK_COLUMN_VISIBILITY = {
   desktopOnly: 'hidden lg:table-cell',

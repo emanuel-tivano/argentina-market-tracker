@@ -76,7 +76,7 @@ export interface QuoteNormalizationOptions {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -135,7 +135,11 @@ export function isOptionalFiniteNumber(
 }
 
 function isOptionalNumericInput(value: unknown): boolean {
-  return value === undefined || toFiniteNumber(value) !== null
+  return value === undefined || value === null || toFiniteNumber(value) !== null
+}
+
+function isOptionalStringInput(value: unknown): boolean {
+  return value === undefined || value === null || isNonEmptyString(value)
 }
 
 function hasPanelTituloIdentity(
@@ -279,7 +283,7 @@ function parsePanelTitulo(value: unknown): NormalizePanelTituloResult {
     }
   }
 
-  if (value.puntas !== undefined) {
+  if (value.puntas !== undefined && value.puntas !== null) {
     if (!isRecord(value.puntas)) {
       return { ok: false, reason: 'INVALID_PUNTAS_SHAPE' }
     }
@@ -314,17 +318,22 @@ function parsePanelTitulo(value: unknown): NormalizePanelTituloResult {
   setFiniteNumber(item, 'laminaMinima', value.laminaMinima)
   setFiniteNumber(item, 'lote', value.lote)
 
+  if (!isOptionalStringInput(value.fechaHora)) {
+    return { ok: false, reason: 'INVALID_TIMESTAMP' }
+  }
+
+  if (!isOptionalStringInput(value.moneda)) {
+    return { ok: false, reason: 'INVALID_CURRENCY' }
+  }
+
+  if (!isOptionalStringInput(value.plazo)) {
+    return { ok: false, reason: 'INVALID_SETTLEMENT' }
+  }
+
   if (isNonEmptyString(value.fechaHora)) {
     item.fechaHora = value.fechaHora
   }
 
-  if (value.moneda !== undefined && !isNonEmptyString(value.moneda)) {
-    return { ok: false, reason: 'INVALID_CURRENCY' }
-  }
-
-  if (value.plazo !== undefined && !isNonEmptyString(value.plazo)) {
-    return { ok: false, reason: 'INVALID_SETTLEMENT' }
-  }
   if (isNonEmptyString(value.moneda)) {
     item.moneda = value.moneda
   }
