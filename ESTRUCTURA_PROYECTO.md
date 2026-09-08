@@ -43,7 +43,7 @@ variables, demo/live mode, and portfolio positioning, start with
 
 - `src/features/dashboard/panel/`
   - Main dashboard coordinator, panel state, refresh behavior, toolbar/menu,
-    loading and freshness UI.
+    loading and freshness UI, theme toggle, and floating actions.
 - `src/features/dashboard/stocks/`
   - Stock table, row rendering, sorting, ticker display, and table layout
     helpers.
@@ -62,9 +62,6 @@ variables, demo/live mode, and portfolio positioning, start with
 - `src/features/dashboard/shared/`
   - Shared client helpers, dashboard row model, ticker utilities, quote metric
     helpers, and JSON fetch wrapper.
-- `src/features/dashboard/shell/`
-  - Page-level shell utilities such as title and theme toggle.
-
 `stock-detail` is intentionally separate from `panel`, `favorites`, `charts`,
 and `shared` because stock detail has a distinct flow: choose or route to a
 symbol, fetch quote/history detail, resolve the current quote, merge quote data
@@ -224,7 +221,6 @@ Start with:
 - `src/features/dashboard/charts/AdvancedStockDetailChart.tsx`
 - `src/app/api/stocks/[symbol]/history/route.ts`
 - `src/lib/stockHistory.ts`
-- `src/lib/server/history/historyRequest.ts`
 - `src/lib/server/history/historyService.ts`
 - `src/lib/server/history/historyCache.ts`
 
@@ -249,7 +245,6 @@ Start with:
 - `src/lib/server/upstream/quoteEndpoint.ts`
 - `src/lib/server/core/env.ts`
 - `src/lib/server/panel/panelEndpoint.ts`
-- `src/lib/server/history/historyEndpoint.ts`
 
 ### Security Or CSP
 

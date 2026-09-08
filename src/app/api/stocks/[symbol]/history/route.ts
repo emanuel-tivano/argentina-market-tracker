@@ -1,6 +1,5 @@
 import { type NextRequest } from 'next/server'
 import { ENV } from '@/lib/server/core/env'
-import { parseHistoryRequest } from '@/lib/server/history/historyRequest'
 import { checkHistoryRateLimit } from '@/lib/server/history/historyRateLimit'
 import { historyErrorResponse, jsonHistoryResponse } from '@/lib/server/history/historyResponse'
 import {
@@ -11,19 +10,69 @@ import {
 import {
   getRequestId,
   getSafeErrorDetails,
-  incrementMetricCounter,
   logServerError,
-  recordMetricDuration,
+  recordApiRequest,
   withRequestIdHeaders,
 } from '@/lib/server/core/observability'
 import { getRetryAfterHeaders, safeCheckRateLimit } from '@/lib/server/core/rateLimit'
+import {
+  DEFAULT_STOCK_HISTORY_MARKET,
+  DEFAULT_STOCK_HISTORY_RANGE,
+  isStockHistoryMarket,
+  isStockHistoryRange,
+} from '@/lib/stockHistory'
+import { parseStockSymbolParam } from '@/lib/stockSymbol'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const runtime = 'nodejs'
 
+const HISTORY_ROUTE = '/api/stocks/[symbol]/history'
+
+function recordHistoryRequest(
+  startedAt: number,
+  status: number,
+  outcome: string,
+  source: string
+) {
+  recordApiRequest({
+    endpoint: HISTORY_ROUTE,
+    method: 'GET',
+    outcome,
+    source,
+    startedAt,
+    status,
+  })
+}
+
 type RouteContext = {
   params: Promise<{ symbol: string }>
+}
+
+function parseHistoryRequest(
+  req: NextRequest,
+  params: { symbol: string }
+) {
+  const symbol = parseStockSymbolParam(params.symbol)
+  const market = (
+    req.nextUrl.searchParams.get('market') ?? DEFAULT_STOCK_HISTORY_MARKET
+  ).trim()
+  const range =
+    req.nextUrl.searchParams.get('range') ?? DEFAULT_STOCK_HISTORY_RANGE
+
+  if (!symbol) {
+    return { ok: false as const, error: 'INVALID_SYMBOL' as const }
+  }
+
+  if (!isStockHistoryMarket(market)) {
+    return { ok: false as const, error: 'INVALID_MARKET' as const }
+  }
+
+  if (!isStockHistoryRange(range)) {
+    return { ok: false as const, error: 'INVALID_RANGE' as const }
+  }
+
+  return { ok: true as const, symbol, market, range }
 }
 
 export function getHistoryCacheSizeForTests() {
@@ -49,18 +98,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
   })
 
   if (!parsedRequest.ok) {
-    incrementMetricCounter('api.request.total', 1, {
-      endpoint: '/api/stocks/[symbol]/history',
-      method: 'GET',
-      outcome: 'error',
-      source: dataSource,
-      status: 400,
-    })
-    recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-      endpoint: '/api/stocks/[symbol]/history',
-      method: 'GET',
-      status: 400,
-    })
+    recordHistoryRequest(startedAt, 400, 'error', dataSource)
     return historyErrorResponse(
       parsedRequest.error,
       { status: 400 },
@@ -73,23 +111,17 @@ export async function GET(req: NextRequest, context: RouteContext) {
     () => checkHistoryRateLimit(req),
     {
       requestId,
-      route: '/api/stocks/[symbol]/history',
+      route: HISTORY_ROUTE,
     }
   )
 
   if (!rateLimitCheck.ok) {
-    incrementMetricCounter('api.request.total', 1, {
-      endpoint: '/api/stocks/[symbol]/history',
-      method: 'GET',
-      outcome: 'rate-limit-unavailable',
-      source: dataSource,
-      status: 503,
-    })
-    recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-      endpoint: '/api/stocks/[symbol]/history',
-      method: 'GET',
-      status: 503,
-    })
+    recordHistoryRequest(
+      startedAt,
+      503,
+      'rate-limit-unavailable',
+      dataSource
+    )
     return historyErrorResponse(
       'RATE_LIMIT_UNAVAILABLE',
       {
@@ -107,18 +139,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
   const rateLimit = rateLimitCheck.rateLimit
 
   if (!rateLimit.ok) {
-    incrementMetricCounter('api.request.total', 1, {
-      endpoint: '/api/stocks/[symbol]/history',
-      method: 'GET',
-      outcome: 'rate-limited',
-      source: dataSource,
-      status: 429,
-    })
-    recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-      endpoint: '/api/stocks/[symbol]/history',
-      method: 'GET',
-      status: 429,
-    })
+    recordHistoryRequest(startedAt, 429, 'rate-limited', dataSource)
     return historyErrorResponse(
       'RATE_LIMITED',
       {
@@ -137,18 +158,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       parsedRequest.range,
       { requestId }
     )
-    incrementMetricCounter('api.request.total', 1, {
-      endpoint: '/api/stocks/[symbol]/history',
-      method: 'GET',
-      outcome: 'success',
-      source: response.meta.source,
-      status: 200,
-    })
-    recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-      endpoint: '/api/stocks/[symbol]/history',
-      method: 'GET',
-      status: 200,
-    })
+    recordHistoryRequest(startedAt, 200, 'success', response.meta.source)
 
     return jsonHistoryResponse(
       {
@@ -168,23 +178,12 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
     logServerError('api.stocks.history.GET', err, {
       requestId,
-      route: '/api/stocks/[symbol]/history',
+      route: HISTORY_ROUTE,
       symbol: parsedRequest.symbol,
       market: parsedRequest.market,
       range: parsedRequest.range,
     })
-    incrementMetricCounter('api.request.total', 1, {
-      endpoint: '/api/stocks/[symbol]/history',
-      method: 'GET',
-      outcome: 'error',
-      source: dataSource,
-      status: 502,
-    })
-    recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-      endpoint: '/api/stocks/[symbol]/history',
-      method: 'GET',
-      status: 502,
-    })
+    recordHistoryRequest(startedAt, 502, 'error', dataSource)
 
     return historyErrorResponse(
       'HISTORY_ERROR',
@@ -197,8 +196,8 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
 export function POST(req: NextRequest) {
   const requestId = getRequestId(req)
-  incrementMetricCounter('api.request.total', 1, {
-    endpoint: '/api/stocks/[symbol]/history',
+  recordApiRequest({
+    endpoint: HISTORY_ROUTE,
     method: 'POST',
     outcome: 'method-not-allowed',
     source: ENV.MARKET_DATA_SOURCE,

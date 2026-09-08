@@ -210,6 +210,7 @@ debe exponer directamente la URL HTTPS configurada.
 | Variable | Uso |
 | --- | --- |
 | `ENABLE_TOKEN_DEBUG` | Habilita debug local de token/raw fuera de producción. |
+| `LOCAL_DEBUG_TOKEN` | Credencial requerida mediante `x-local-debug-token` para `/api/token` y `/api/panel?raw=1`; nunca habilitada en producción. |
 | `OBSERVABILITY_DEBUG_TOKEN` | Protege `/api/debug/metrics` en producción. |
 | `FAVORITES_QUOTE_CONCURRENCY` | Entero decimal estricto `1-10` para fan-out de favoritos; valores parciales usan el default `4`. |
 | `PANEL_CACHE_FRESH_TTL_MS` / `PANEL_CACHE_STALE_TTL_MS` | Ventana fresh y edad máxima del snapshot de panel; defaults `30s` / `2m`. |
@@ -389,4 +390,4 @@ de portfolio técnico.
 
 Estas dos marcas son editoriales y no se renderizan en la interfaz. Para
 publicar los canales, reemplazá los valores `null` de
-`src/lib/authorContact.ts` por la URL completa de LinkedIn y el correo real.
+`LINKEDIN_URL` y `CONTACT_EMAIL` en `src/app/about/page.tsx` por los datos reales.

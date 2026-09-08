@@ -215,7 +215,12 @@ describe('StockDetailsContent variants', () => {
         onHistoryRangeChange={vi.fn()}
         history={{
           ...pageHistory,
-          meta: { ...pageHistory.meta, source: 'live', stale: true },
+          meta: {
+            ...pageHistory.meta,
+            resolvedVariant: 'ajustada',
+            source: 'live',
+            stale: true,
+          },
         }}
       />
     )
@@ -228,7 +233,7 @@ describe('StockDetailsContent variants', () => {
     expect(screen.getByText('Stale')).not.toBeNull()
   })
 
-  it('describes invalid or duplicate history entries as discarded points', () => {
+  it('identifies a live unadjusted history without presenting it as an error', () => {
     render(
       <StockDetailsContent
         stock={stock}
@@ -239,7 +244,62 @@ describe('StockDetailsContent variants', () => {
           ...pageHistory,
           meta: {
             ...pageHistory.meta,
-            discardedPoints: 1,
+            resolvedVariant: 'sinAjustar',
+            source: 'live',
+          },
+        }}
+      />
+    )
+
+    expect(screen.getByText('Live · Sin ajustar')).not.toBeNull()
+    expect(
+      screen.getByText(
+        'Se está mostrando histórico sin ajustar porque no había histórico ajustado disponible.'
+      )
+    ).not.toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('keeps stale and unadjusted signals visible together', () => {
+    render(
+      <StockDetailsContent
+        stock={stock}
+        variant="page"
+        historyRange="1M"
+        onHistoryRangeChange={vi.fn()}
+        history={{
+          ...pageHistory,
+          meta: {
+            ...pageHistory.meta,
+            resolvedVariant: 'sinAjustar',
+            source: 'live',
+            stale: true,
+          },
+        }}
+      />
+    )
+
+    expect(screen.getByText('Stale · Sin ajustar')).not.toBeNull()
+    expect(
+      screen.getByText(
+        'Mostrando histórico sin ajustar cacheado por una falla temporal del upstream.'
+      )
+    ).not.toBeNull()
+  })
+
+  it('distinguishes discarded upstream points from displayed points', () => {
+    render(
+      <StockDetailsContent
+        stock={stock}
+        variant="page"
+        historyRange="1M"
+        onHistoryRangeChange={vi.fn()}
+        history={{
+          ...pageHistory,
+          meta: {
+            ...pageHistory.meta,
+            discardedPoints: 3,
+            totalPoints: 8,
           },
         }}
       />
@@ -247,9 +307,10 @@ describe('StockDetailsContent variants', () => {
 
     expect(
       screen.getByText(
-        'Se descartaron 1 de 2 puntos del upstream.'
+        'Se descartaron 3 puntos del upstream; se muestran 8.'
       )
     ).not.toBeNull()
+    expect(screen.queryByText(/3 de 8/)).toBeNull()
     expect(screen.queryByText(/puntos inválidos/i)).toBeNull()
     expect(screen.getByText('Último mes:')).not.toBeNull()
   })
@@ -264,7 +325,7 @@ describe('StockDetailsContent variants', () => {
     expect(screen.getByText('Último mes:')).not.toBeNull()
   })
 
-  it('keeps the simple chart and omits period metrics in modal mode', () => {
+  it('keeps demo history bounded in modal mode and omits period metrics', () => {
     render(<StockDetailsContent stock={stock} />)
 
     expect(screen.getByTestId('simple-chart')).not.toBeNull()
@@ -303,7 +364,6 @@ describe('StockDetailsContent variants', () => {
     expect(chartMocks.simplePoints).toHaveBeenLastCalledWith([
       expect.objectContaining({ date: '2026-05-01', close: 100 }),
       expect.objectContaining({ date: '2026-05-02', close: 110 }),
-      expect.objectContaining({ date: '2026-05-03', close: 110 }),
     ])
   })
 
@@ -429,6 +489,22 @@ describe('StockDetailsContent variants', () => {
         close: 7615,
       }),
     ])
+  })
+
+  it('does not extend demo history with a quote outside its date range', () => {
+    render(
+      <StockDetailsContent
+        stock={stock}
+        variant="page"
+        historyRange="1M"
+        onHistoryRangeChange={() => undefined}
+        history={pageHistory}
+        quoteDetail={quoteDetail}
+        quoteSource="demo"
+      />
+    )
+
+    expect(chartMocks.advancedPoints).toHaveBeenLastCalledWith(pageHistory.points)
   })
 
   it('renders CotizacionDetalle metrics and every market-depth row', () => {

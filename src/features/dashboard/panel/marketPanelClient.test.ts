@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertMarketPanelSuccessResponse } from './marketPanelValidation'
+import { assertMarketPanelSuccessResponse } from './marketPanelClient'
 
 function panelResponse(overrides: Record<string, unknown> = {}) {
   return {

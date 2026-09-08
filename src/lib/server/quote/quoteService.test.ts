@@ -23,12 +23,13 @@ const context = {
   route: '/stocks/[symbol]',
 }
 
-function quotePayload() {
+function quotePayload(overrides: Record<string, unknown> = {}) {
   return {
     simbolo: 'GGAL',
     mercado: 'bCBA',
     descripcionTitulo: 'Grupo Financiero Galicia',
     ultimoPrecio: 100,
+    ...overrides,
   }
 }
 
@@ -207,6 +208,49 @@ describe('quoteService upstream protection and cache ordering', () => {
 
     expect(iolFetch).toHaveBeenCalledOnce()
     await expectUpstreamBudgetCount(limits, 1)
+  })
+
+  it('rejects a mismatched upstream symbol without caching it', async () => {
+    const iolFetch = vi.fn().mockResolvedValue(
+      quotePayload({ simbolo: 'AAPL' })
+    )
+    const { cache, service } = await loadService(iolFetch)
+
+    await expect(
+      service.getStockQuoteResponse('GGAL', 'bCBA', context)
+    ).rejects.toThrow('identity does not match')
+
+    expect(cache.getCachedStockQuoteResponse('bCBA', 'GGAL')).toBeNull()
+  })
+
+  it('accepts case-only differences in upstream quote identity', async () => {
+    const iolFetch = vi.fn().mockResolvedValue(
+      quotePayload({ simbolo: 'ggal', mercado: 'BCBA' })
+    )
+    const { service } = await loadService(iolFetch)
+
+    await expect(
+      service.getStockQuoteResponse('GGAL', 'bCBA', context)
+    ).resolves.toMatchObject({
+      response: {
+        data: { symbol: 'ggal', market: 'BCBA' },
+        symbol: 'GGAL',
+        market: 'bCBA',
+      },
+    })
+  })
+
+  it('rejects a mismatched upstream market', async () => {
+    const iolFetch = vi.fn().mockResolvedValue(
+      quotePayload({ mercado: 'NASDAQ' })
+    )
+    const { cache, service } = await loadService(iolFetch)
+
+    await expect(
+      service.getStockQuoteResponse('GGAL', 'bCBA', context)
+    ).rejects.toThrow('identity does not match')
+
+    expect(cache.getCachedStockQuoteResponse('bCBA', 'GGAL')).toBeNull()
   })
 
   it('consumes one new budget unit only after the full positive cache window expires', async () => {

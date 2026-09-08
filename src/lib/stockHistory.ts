@@ -13,6 +13,8 @@ export type StockHistoryRange = (typeof STOCK_HISTORY_RANGES)[number]
 export const DEFAULT_STOCK_HISTORY_RANGE: StockHistoryRange = '1M'
 export const STOCK_HISTORY_MARKETS = ['bCBA'] as const
 export type StockHistoryMarket = (typeof STOCK_HISTORY_MARKETS)[number]
+export const STOCK_HISTORY_VARIANTS = ['ajustada', 'sinAjustar'] as const
+export type StockHistoryVariant = (typeof STOCK_HISTORY_VARIANTS)[number]
 export const DEFAULT_STOCK_HISTORY_MARKET: StockHistoryMarket = 'bCBA'
 export type StockHistoryCacheStatus = 'fresh' | 'memory-cache' | 'stale'
 
@@ -66,13 +68,24 @@ export interface StockHistorySuccessResponse {
   meta: StockHistoryResponseMeta
 }
 
-export interface StockHistoryResponseMeta {
+type StockHistoryResponseMetaBase = {
   discardedPoints: number
   requestId?: string
-  source: 'demo' | 'live'
   stale: boolean
   totalPoints: number
 }
+
+export type StockHistoryResponseMeta = StockHistoryResponseMetaBase &
+  (
+    | {
+        source: 'live'
+        resolvedVariant: StockHistoryVariant
+      }
+    | {
+        source: 'demo'
+        resolvedVariant?: never
+      }
+  )
 
 export const STOCK_HISTORY_ERROR_CODES = [
   'HISTORY_ERROR',
@@ -347,6 +360,15 @@ function setOptionalNumber(
   if (numberValue !== null) {
     point[field] = numberValue
   }
+}
+
+export function isStockHistoryVariant(
+  value: unknown
+): value is StockHistoryVariant {
+  return (
+    typeof value === 'string' &&
+    STOCK_HISTORY_VARIANTS.includes(value as StockHistoryVariant)
+  )
 }
 
 function setOptionalString(

@@ -3,6 +3,7 @@ import {
   isStockHistoryMarket,
   isStockHistoryPoint,
   isStockHistoryRange,
+  isStockHistoryVariant,
   isValidStockHistoryCacheState,
   type StockHistoryErrorCode,
   type StockHistoryResponse,
@@ -72,6 +73,15 @@ function assertStockHistorySuccessResponse(
     (value.meta.requestId !== undefined && typeof value.meta.requestId !== 'string')
   ) {
     throw new Error('Respuesta inválida del servidor: meta histórica inválida.')
+  }
+  if (
+    (value.meta.source === 'live' &&
+      !isStockHistoryVariant(value.meta.resolvedVariant)) ||
+    (value.meta.source === 'demo' && value.meta.resolvedVariant !== undefined)
+  ) {
+    throw new Error(
+      'Respuesta inválida del servidor: variante histórica inválida.'
+    )
   }
   if (!isValidStockHistoryCacheState(value.cacheStatus, value.meta.stale)) {
     throw new Error(

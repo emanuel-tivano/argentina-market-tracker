@@ -14,9 +14,8 @@ import { jsonResponse } from '@/lib/server/core/httpResponse'
 import {
   getRequestId,
   getSafeErrorDetails,
-  incrementMetricCounter,
   logServerError,
-  recordMetricDuration,
+  recordApiRequest,
   withRequestIdHeaders,
 } from '@/lib/server/core/observability'
 import {
@@ -30,6 +29,24 @@ import { QuoteUpstreamBudgetError } from '@/lib/server/quote/protectedQuoteLooku
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const runtime = 'nodejs'
+
+const FAVORITES_ROUTE = '/api/favorites'
+
+function recordFavoritesRequest(
+  startedAt: number,
+  status: number,
+  outcome: string,
+  source: string
+) {
+  recordApiRequest({
+    endpoint: FAVORITES_ROUTE,
+    method: 'GET',
+    outcome,
+    source,
+    startedAt,
+    status,
+  })
+}
 
 function favoritesErrorResponse(
   error: FavoritesErrorCode,
@@ -65,20 +82,9 @@ export async function GET(req: NextRequest) {
   const dataSource = ENV.MARKET_DATA_SOURCE
 
   if (!parsedRequest.ok) {
-    const status = parsedRequest.error === 'TOO_MANY_ITEMS' ? 400 : 400
+    const status = 400
 
-    incrementMetricCounter('api.request.total', 1, {
-      endpoint: '/api/favorites',
-      method: 'GET',
-      outcome: 'error',
-      source: dataSource,
-      status,
-    })
-    recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-      endpoint: '/api/favorites',
-      method: 'GET',
-      status,
-    })
+    recordFavoritesRequest(startedAt, status, 'error', dataSource)
 
     return favoritesErrorResponse(parsedRequest.error, { status }, undefined, requestId)
   }
@@ -92,18 +98,12 @@ export async function GET(req: NextRequest) {
   )
 
   if (!rateLimitCheck.ok) {
-    incrementMetricCounter('api.request.total', 1, {
-      endpoint: '/api/favorites',
-      method: 'GET',
-      outcome: 'rate-limit-unavailable',
-      source: dataSource,
-      status: 503,
-    })
-    recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-      endpoint: '/api/favorites',
-      method: 'GET',
-      status: 503,
-    })
+    recordFavoritesRequest(
+      startedAt,
+      503,
+      'rate-limit-unavailable',
+      dataSource
+    )
 
     return favoritesErrorResponse(
       'RATE_LIMIT_UNAVAILABLE',
@@ -126,18 +126,7 @@ export async function GET(req: NextRequest) {
   )
 
   if (!rateLimit.ok) {
-    incrementMetricCounter('api.request.total', 1, {
-      endpoint: '/api/favorites',
-      method: 'GET',
-      outcome: 'rate-limited',
-      source: dataSource,
-      status: 429,
-    })
-    recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-      endpoint: '/api/favorites',
-      method: 'GET',
-      status: 429,
-    })
+    recordFavoritesRequest(startedAt, 429, 'rate-limited', dataSource)
 
     return favoritesErrorResponse(
       'RATE_LIMITED',
@@ -157,18 +146,7 @@ export async function GET(req: NextRequest) {
       requestId,
     })
 
-    incrementMetricCounter('api.request.total', 1, {
-      endpoint: '/api/favorites',
-      method: 'GET',
-      outcome: 'success',
-      source: response.source,
-      status: 200,
-    })
-    recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-      endpoint: '/api/favorites',
-      method: 'GET',
-      status: 200,
-    })
+    recordFavoritesRequest(startedAt, 200, 'success', response.source)
 
     return jsonResponse(response, {
       headers: withRequestIdHeaders(rateLimit.headers, requestId),
@@ -177,18 +155,12 @@ export async function GET(req: NextRequest) {
     const isProd = ENV.NODE_ENV === 'production'
 
     if (error instanceof QuoteUpstreamBudgetError) {
-      incrementMetricCounter('api.request.total', 1, {
-        endpoint: '/api/favorites',
-        method: 'GET',
-        outcome: 'rate-limited',
-        source: dataSource,
-        status: error.status,
-      })
-      recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-        endpoint: '/api/favorites',
-        method: 'GET',
-        status: error.status,
-      })
+      recordFavoritesRequest(
+        startedAt,
+        error.status,
+        'rate-limited',
+        dataSource
+      )
 
       return favoritesErrorResponse(
         error.code,
@@ -209,18 +181,7 @@ export async function GET(req: NextRequest) {
       route: '/api/favorites',
       items: parsedRequest.items.map((item) => `${item.market}:${item.symbol}`),
     })
-    incrementMetricCounter('api.request.total', 1, {
-      endpoint: '/api/favorites',
-      method: 'GET',
-      outcome: 'error',
-      source: dataSource,
-      status: 502,
-    })
-    recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-      endpoint: '/api/favorites',
-      method: 'GET',
-      status: 502,
-    })
+    recordFavoritesRequest(startedAt, 502, 'error', dataSource)
 
     return favoritesErrorResponse(
       'FAVORITES_ERROR',
@@ -240,8 +201,8 @@ export async function GET(req: NextRequest) {
 export function POST(req: NextRequest) {
   const requestId = getRequestId(req)
 
-  incrementMetricCounter('api.request.total', 1, {
-    endpoint: '/api/favorites',
+  recordApiRequest({
+    endpoint: FAVORITES_ROUTE,
     method: 'POST',
     outcome: 'method-not-allowed',
     source: ENV.MARKET_DATA_SOURCE,

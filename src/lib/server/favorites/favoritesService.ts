@@ -104,13 +104,13 @@ async function fetchLiveQuote(
     requestId?: string
   }
 ) {
-  const fetchedAt = new Date().toISOString()
   const data = await getQuoteBySymbol(market, symbol, {
     rateLimitIdentity: options.rateLimitIdentity,
     requestId: options.requestId,
     route: '/api/favorites',
   })
   const row = normalizeQuoteData(data, { symbol })
+  const fetchedAt = new Date().toISOString()
 
   const value = {
     data: row,

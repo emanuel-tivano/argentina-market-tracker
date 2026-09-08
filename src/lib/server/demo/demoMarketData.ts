@@ -74,6 +74,22 @@ const RANGE_DAY_COUNT: Record<StockHistoryRange, number> = {
   '1Y': 365,
 }
 
+const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires'
+
+function getArgentinaCalendarDate(now: Date): Date {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: ARGENTINA_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now)
+  const year = Number(parts.find((part) => part.type === 'year')?.value)
+  const month = Number(parts.find((part) => part.type === 'month')?.value)
+  const day = Number(parts.find((part) => part.type === 'day')?.value)
+
+  return new Date(Date.UTC(year, month - 1, day))
+}
+
 function createPanelRow(
   simbolo: string,
   descripcion: string,
@@ -148,9 +164,9 @@ function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10)
 }
 
-function getBusinessDates(range: StockHistoryRange): Date[] {
+function getBusinessDates(range: StockHistoryRange, now: Date): Date[] {
   const targetCount = RANGE_DAY_COUNT[range]
-  const cursor = new Date('2026-05-26T00:00:00.000Z')
+  const cursor = getArgentinaCalendarDate(now)
   const dates: Date[] = []
 
   while (dates.length < targetCount) {
@@ -236,7 +252,8 @@ export function getDemoQuoteDetailBySymbol(
 export function getDemoHistoryData(
   symbol: string,
   _market: StockHistoryMarket,
-  range: StockHistoryRange
+  range: StockHistoryRange,
+  now = new Date()
 ): StockHistoryPoint[] {
   const normalizedSymbol = symbol.toUpperCase()
   const profile = DEMO_SYMBOL_PROFILES[normalizedSymbol]
@@ -245,7 +262,7 @@ export function getDemoHistoryData(
     return []
   }
 
-  const dates = getBusinessDates(range)
+  const dates = getBusinessDates(range, now)
   const seed = createSeed(normalizedSymbol)
   const points: StockHistoryPoint[] = []
 

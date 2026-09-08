@@ -1,19 +1,48 @@
 import {
+  isPanelTitulo,
   isPanelErrorCode,
   type PanelErrorCode,
   type PanelResponse as MarketPanelResponse,
 } from '@/lib/panel';
+import { isValidFreshnessContract } from '@/lib/freshness';
 import {
   fetchValidatedJson,
   isJsonRecord,
   responseUrlSuffix,
 } from '@/features/dashboard/shared/fetchJsonClient';
-import { assertMarketPanelSuccessResponse } from './marketPanelValidation';
 
 export type MarketPanelSuccessResponse = Extract<
   MarketPanelResponse,
   { ok: true }
 >;
+
+function getMarketPanelSuccessValidationError(value: unknown): string | null {
+  if (!isJsonRecord(value) || value.ok !== true) {
+    return 'Respuesta inválida del servidor: contrato de éxito inválido.';
+  }
+
+  if (!Array.isArray(value.data)) {
+    return 'Respuesta inválida del servidor: data debe ser un array.';
+  }
+
+  if (!value.data.every(isPanelTitulo)) {
+    return 'Respuesta inválida del servidor: item de panel inválido.';
+  }
+
+  return isValidFreshnessContract(value)
+    ? null
+    : 'Respuesta inválida del servidor: metadata inválida.';
+}
+
+export function assertMarketPanelSuccessResponse(
+  value: unknown,
+): asserts value is MarketPanelSuccessResponse {
+  const validationError = getMarketPanelSuccessValidationError(value);
+
+  if (validationError) {
+    throw new Error(validationError);
+  }
+}
 
 type MarketPanelErrorResponse = Extract<MarketPanelResponse, { ok: false }>;
 
@@ -37,18 +66,6 @@ const PANEL_ERROR_MESSAGE: Record<PanelErrorCode, string> = {
   INVALID_PANEL_TYPE: 'Panel de mercado inválido.',
 };
 
-function panelErrorMessage(error: PanelErrorCode): string {
-  switch (error) {
-    case 'PANEL_ERROR':
-    case 'RATE_LIMITED':
-    case 'RATE_LIMIT_UNAVAILABLE':
-    case 'REFRESH_COOLDOWN':
-    case 'METHOD_NOT_ALLOWED':
-    case 'INVALID_PANEL_TYPE':
-      return PANEL_ERROR_MESSAGE[error];
-  }
-}
-
 export async function getMarketPanelFetchError(
   response: Response,
 ): Promise<Error> {
@@ -68,7 +85,7 @@ export async function getMarketPanelFetchError(
     );
   }
 
-  const message = panelErrorMessage(json.error);
+  const message = PANEL_ERROR_MESSAGE[json.error];
 
   if (process.env.NODE_ENV !== 'production' && json.details) {
     return new Error(`${message} Detalle: ${json.details}`);

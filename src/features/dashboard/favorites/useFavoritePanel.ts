@@ -13,10 +13,6 @@ export type UseFavoritePanelOptions = {
   enabled?: boolean
 }
 
-function withRefreshParam(url: string): string {
-  return `${url}&refresh=1`
-}
-
 export function useFavoritePanel(
   items: FavoriteStockIdentity[],
   options: UseFavoritePanelOptions = {}
@@ -45,7 +41,6 @@ export function useFavoritePanel(
     fetcher: fetchFavoritePanel,
     key: fetchUrl,
     mutate,
-    withRefreshParam,
   })
 
   const rows = useMemo(

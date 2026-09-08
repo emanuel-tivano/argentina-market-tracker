@@ -57,6 +57,7 @@ function getConfiguredSecrets(): string[] {
     process.env.API_URL,
     process.env.API_USERNAME,
     process.env.API_PASSWORD,
+    process.env.LOCAL_DEBUG_TOKEN,
     process.env.RATE_LIMIT_REDIS_REST_URL,
     process.env.RATE_LIMIT_REDIS_REST_TOKEN,
   ].filter(
@@ -306,6 +307,38 @@ export function recordMetricDuration(
     sum: durationMs,
     tags: normalizedTags,
   })
+}
+
+export function recordApiRequest({
+  endpoint,
+  method,
+  outcome,
+  source,
+  startedAt,
+  status,
+}: {
+  endpoint: string
+  method: string
+  outcome: string
+  source: string
+  startedAt?: number
+  status: number
+}) {
+  incrementMetricCounter('api.request.total', 1, {
+    endpoint,
+    method,
+    outcome,
+    source,
+    status,
+  })
+
+  if (startedAt !== undefined) {
+    recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
+      endpoint,
+      method,
+      status,
+    })
+  }
 }
 
 export function getObservabilitySnapshot() {

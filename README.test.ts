@@ -11,6 +11,10 @@ const envExample = readFileSync(
   path.join(process.cwd(), '.env.local.example'),
   'utf8'
 )
+const ciWorkflow = readFileSync(
+  path.join(process.cwd(), '.github', 'workflows', 'ci.yml'),
+  'utf8'
+)
 
 describe('README', () => {
   it('presents the author, project, repository, and verified demo', () => {
@@ -45,7 +49,7 @@ describe('README', () => {
   it('documents optional contact configuration without invented personal data', () => {
     expect(readme).toContain('[Agregar LinkedIn]')
     expect(readme).toContain('[Agregar correo profesional]')
-    expect(readme).toContain('src/lib/authorContact.ts')
+    expect(readme).toContain('src/app/about/page.tsx')
     expect(readme).toContain('no se renderizan en la interfaz')
     expect(readme).not.toMatch(/example@example\.com/i)
     expect(readme).not.toMatch(/mailto:/i)
@@ -96,6 +100,16 @@ describe('README', () => {
       expect(envExample).toContain(`${name}=`)
       expect(runbook).toContain(`\`${name}\``)
     }
+
+    expect(runbook).toContain('NODE_ENV=test')
+    expect(runbook).toContain('PLAYWRIGHT_E2E_MODE=ssr')
+  })
+
+  it('documents explicit local debug authorization', () => {
+    expect(envExample).toContain('LOCAL_DEBUG_TOKEN=""')
+    expect(readme).toContain('`LOCAL_DEBUG_TOKEN`')
+    expect(runbook).toContain('x-local-debug-token')
+    expect(runbook).toMatch(/Hostname and proxy headers do not grant\s+access/)
   })
 
   it('documents quote namespaces, process-local limits, and fail-closed behavior', () => {
@@ -114,12 +128,13 @@ describe('README', () => {
     expect(runbook).toContain('failedItems')
   })
 
-  it('records the temporary PostCSS override and a concrete removal criterion', () => {
-    expect(runbook).toContain('Next.js `16.2.6`')
-    expect(runbook).toContain('postcss@8.4.31')
-    expect(runbook).toContain('resolves `8.5.19`')
-    expect(runbook).toContain('compatibility is not guaranteed by Next')
+  it('records the dependency security verification procedure', () => {
+    expect(runbook).toContain('Next.js `16.3.0`')
+    expect(runbook).toContain('does not override Next.js transitive dependencies')
     expect(runbook).toContain('npm explain postcss')
+    expect(runbook).toContain('npm audit --omit=dev')
+    expect(ciWorkflow).toContain('run: npm audit --omit=dev')
+    expect(ciWorkflow).not.toMatch(/npm audit --omit=dev[^\r\n]*\|\|\s*true/)
   })
 
   it('references existing screenshots with reproducible dimensions', () => {

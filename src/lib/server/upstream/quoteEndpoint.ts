@@ -1,9 +1,5 @@
 import 'server-only'
 
-function encodePathPart(value: string): string {
-  return encodeURIComponent(value)
-}
-
 export function normalizeQuoteMarket(market: string): string {
   const trimmedMarket = market.trim()
 
@@ -11,7 +7,7 @@ export function normalizeQuoteMarket(market: string): string {
 }
 
 export function getQuoteEndpoint(market: string, symbol: string): string {
-  return `/api/v2/${encodePathPart(normalizeQuoteMarket(market))}/Titulos/${encodePathPart(
+  return `/api/v2/${encodeURIComponent(normalizeQuoteMarket(market))}/Titulos/${encodeURIComponent(
     symbol
   )}/Cotizacion`
 }
@@ -20,7 +16,7 @@ export function getQuoteDetailEndpoint(
   market: string,
   symbol: string
 ): string {
-  return `/api/v2/${encodePathPart(market)}/Titulos/${encodePathPart(
+  return `/api/v2/${encodeURIComponent(market)}/Titulos/${encodeURIComponent(
     symbol
   )}/CotizacionDetalle`
 }

@@ -11,6 +11,34 @@ function jsonResponse(body: unknown, status = 502): Response {
   })
 }
 
+function historySuccessResponse(options: {
+  cacheStatus?: 'fresh' | 'memory-cache' | 'stale'
+  resolvedVariant?: unknown
+  source: 'demo' | 'live'
+}) {
+  const cacheStatus = options.cacheStatus ?? 'fresh'
+
+  return {
+    ok: true,
+    data: [{ date: '2026-05-07', close: 100 }],
+    fetchedAt: '2026-05-07T15:00:00.000Z',
+    servedAt: '2026-05-07T15:06:00.000Z',
+    cacheStatus,
+    range: '1M',
+    market: 'bCBA',
+    symbol: 'GGAL',
+    meta: {
+      discardedPoints: 0,
+      source: options.source,
+      stale: cacheStatus === 'stale',
+      totalPoints: 1,
+      ...(options.resolvedVariant !== undefined
+        ? { resolvedVariant: options.resolvedVariant }
+        : {}),
+    },
+  }
+}
+
 describe('getStockHistoryFetchError', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -65,6 +93,62 @@ describe('fetchStockHistory', () => {
     )
   })
 
+  it.each([
+    ['ajustada', 'fresh'],
+    ['sinAjustar', 'memory-cache'],
+    ['sinAjustar', 'stale'],
+  ] as const)(
+    'accepts live %s metadata through %s responses',
+    async (resolvedVariant, cacheStatus) => {
+      const response = historySuccessResponse({
+        cacheStatus,
+        resolvedVariant,
+        source: 'live',
+      })
+      vi.stubGlobal('fetch', vi.fn(async () => Response.json(response)))
+
+      await expect(
+        fetchStockHistory('/api/stocks/GGAL/history?range=1M&market=bCBA')
+      ).resolves.toEqual(response)
+    }
+  )
+
+  it.each([
+    ['missing', undefined],
+    ['unknown', 'totalReturn'],
+  ])('rejects a live response with %s variant', async (_label, resolvedVariant) => {
+    const response = historySuccessResponse({
+      resolvedVariant,
+      source: 'live',
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(response)))
+
+    await expect(
+      fetchStockHistory('/api/stocks/GGAL/history?range=1M&market=bCBA')
+    ).rejects.toThrow('variante histórica inválida')
+  })
+
+  it('accepts demo metadata without a resolved variant', async () => {
+    const response = historySuccessResponse({ source: 'demo' })
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(response)))
+
+    await expect(
+      fetchStockHistory('/api/stocks/GGAL/history?range=1M&market=bCBA')
+    ).resolves.toEqual(response)
+  })
+
+  it('rejects demo metadata that invents a resolved variant', async () => {
+    const response = historySuccessResponse({
+      resolvedVariant: 'ajustada',
+      source: 'demo',
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(response)))
+
+    await expect(
+      fetchStockHistory('/api/stocks/GGAL/history?range=1M&market=bCBA')
+    ).rejects.toThrow('variante histórica inválida')
+  })
+
   it('rejects an impossible calendar date from the server contract', async () => {
     vi.stubGlobal(
       'fetch',
@@ -80,6 +164,7 @@ describe('fetchStockHistory', () => {
           symbol: 'GGAL',
           meta: {
             discardedPoints: 0,
+            resolvedVariant: 'ajustada',
             source: 'live',
             stale: false,
             totalPoints: 1,
@@ -123,6 +208,7 @@ describe('fetchStockHistory', () => {
           symbol: 'GGAL',
           meta: {
             discardedPoints: 0,
+            resolvedVariant: 'ajustada',
             source: 'live',
             stale: false,
             totalPoints: data.length,
@@ -148,6 +234,7 @@ describe('fetchStockHistory', () => {
       symbol: 'GGAL',
       meta: {
         discardedPoints: 0,
+        resolvedVariant: 'sinAjustar',
         source: 'live',
         stale: true,
         totalPoints: 1,
@@ -180,6 +267,7 @@ describe('fetchStockHistory', () => {
           symbol: 'GGAL',
           meta: {
             discardedPoints: 0,
+            resolvedVariant: 'ajustada',
             source: 'live',
             stale,
             totalPoints: 1,

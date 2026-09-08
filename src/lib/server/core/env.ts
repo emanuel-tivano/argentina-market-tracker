@@ -331,6 +331,10 @@ export const ENV = {
     return optionalTrimmed('OBSERVABILITY_DEBUG_TOKEN')
   },
 
+  get LOCAL_DEBUG_TOKEN() {
+    return process.env.LOCAL_DEBUG_TOKEN ?? ''
+  },
+
   get APP_VERSION() {
     return optionalTrimmed('APP_VERSION') || optionalTrimmed('npm_package_version')
   },

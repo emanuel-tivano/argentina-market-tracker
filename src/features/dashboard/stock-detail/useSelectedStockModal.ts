@@ -15,29 +15,26 @@ export function useSelectedStockModal({
   isFavoritesPanel,
   favoriteSnapshotsByTicker,
 }: UseSelectedStockModalOptions) {
-  const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [selectedSnapshot, setSelectedSnapshot] = useState<StockData | null>(null);
 
   const resolvedSelectedStock = useMemo(
     () =>
       resolveSelectedStock({
         rows,
-        selectedTicker,
+        selectedTicker: selectedSnapshot?.ticker ?? null,
         isFavoritesPanel,
         favoriteSnapshotsByTicker,
       }),
-    [favoriteSnapshotsByTicker, isFavoritesPanel, rows, selectedTicker],
+    [favoriteSnapshotsByTicker, isFavoritesPanel, rows, selectedSnapshot],
   );
 
   const selectedStock = resolvedSelectedStock ?? (isFavoritesPanel ? selectedSnapshot : null);
 
   const handleStockSelect = useCallback((stock: StockData) => {
-    setSelectedTicker(stock.ticker);
     setSelectedSnapshot(stock);
   }, []);
 
   const handleCloseStockDetails = useCallback(() => {
-    setSelectedTicker(null);
     setSelectedSnapshot(null);
   }, []);
 

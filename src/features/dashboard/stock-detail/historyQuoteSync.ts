@@ -2,11 +2,17 @@ import { toMarketDateString } from '@/features/dashboard/charts/advancedStockCha
 import { type StockHistoryPoint } from '@/lib/stockHistory'
 import { parseStockHistoryCalendarDate } from '@/lib/stockHistoryDate'
 import { type ResolvedCurrentQuote } from './currentQuoteTypes'
+import { mergeLiveQuoteIntoHistoricalSeries } from './liveSessionCandle'
 
 export type SyncedHistoryWithQuoteResult = {
   points: StockHistoryPoint[]
   syncedAt: string | null
   syncedQuote: boolean
+}
+
+type SyncHistoryWithQuoteOptions = {
+  now?: Date
+  quoteSource?: 'demo' | 'live' | null
 }
 
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires'
@@ -26,18 +32,18 @@ function marketDateFromTimestamp(value: string | null): string | null {
     return null
   }
 
-  const dateOnlyValue = value.trim().slice(0, 10)
-  const calendarDate = parseStockHistoryCalendarDate(dateOnlyValue)
+  const trimmedValue = value.trim()
+  const calendarDate = parseStockHistoryCalendarDate(trimmedValue)
 
   if (calendarDate) {
     return calendarDate.date
   }
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnlyValue)) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
     return null
   }
 
-  const parsedDate = new Date(value)
+  const parsedDate = new Date(trimmedValue)
 
   return Number.isFinite(parsedDate.getTime())
     ? toMarketDateString(parsedDate, ARGENTINA_TIME_ZONE)
@@ -124,8 +130,26 @@ function applyQuoteToHistoryPoint(
 
 export function syncHistoryWithCurrentQuote(
   historicalSeries: readonly StockHistoryPoint[],
-  currentQuote: ResolvedCurrentQuote
+  currentQuote: ResolvedCurrentQuote,
+  options: SyncHistoryWithQuoteOptions = {}
 ): SyncedHistoryWithQuoteResult {
+  if (options.quoteSource === 'live') {
+    const merged = mergeLiveQuoteIntoHistoricalSeries(
+      historicalSeries,
+      currentQuote,
+      {
+        now: options.now ?? new Date(),
+        quoteSource: 'live',
+      }
+    )
+
+    return {
+      points: merged.points,
+      syncedAt: merged.liveSessionCandle?.timestamp ?? null,
+      syncedQuote: merged.liveSessionCandle !== null,
+    }
+  }
+
   const pointsByDate = cloneDedupedHistoryByDate(historicalSeries)
   const originalPoints = sortHistoryPoints(pointsByDate.values())
   const quotePrice = positivePrice(currentQuote.price)
@@ -155,6 +179,14 @@ export function syncHistoryWithCurrentQuote(
   }
 
   const existingPoint = pointsByDate.get(quoteDate)
+
+  if (options.quoteSource === 'demo' && !existingPoint) {
+    return {
+      points: originalPoints,
+      syncedAt: null,
+      syncedQuote: false,
+    }
+  }
 
   if (!existingPoint && !canAppendQuotePoint(currentQuote)) {
     return {

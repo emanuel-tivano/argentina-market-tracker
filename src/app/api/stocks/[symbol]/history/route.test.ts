@@ -1,5 +1,9 @@
 import { NextRequest } from 'next/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  IolUpstreamNetworkError,
+  isRecoverableIolUpstreamError,
+} from '@/lib/server/upstream/iol'
 
 const OLD_ENV = { ...process.env }
 const LIVE_ENV_DEFAULTS = {
@@ -53,8 +57,7 @@ async function loadRoute(
   vi.doMock('server-only', () => ({}))
   vi.doMock('@/lib/server/upstream/iol', () => ({
     iolFetch,
-    isRecoverableIolUpstreamError: (error: unknown) =>
-      error instanceof Error && !(error instanceof TypeError),
+    isRecoverableIolUpstreamError,
   }))
 
   return import('./route')
@@ -170,6 +173,7 @@ describe('/api/stocks/[symbol]/history route', () => {
       meta: {
         discardedPoints: 0,
         requestId: expect.any(String),
+        resolvedVariant: 'ajustada',
         source: 'live',
         stale: false,
         totalPoints: 1,
@@ -222,6 +226,7 @@ describe('/api/stocks/[symbol]/history route', () => {
       ok: true,
       data: [{ date: '2026-05-07', close: 916 }],
       market: 'bCBA',
+      meta: { resolvedVariant: 'ajustada' },
       symbol: 'AAPL',
     })
     expect(iolFetch).toHaveBeenCalledWith(
@@ -253,6 +258,7 @@ describe('/api/stocks/[symbol]/history route', () => {
       ok: true,
       data: [{ date: '2026-05-07', close: 916 }],
       market: 'bCBA',
+      meta: { resolvedVariant: 'sinAjustar' },
       symbol: 'AAPL',
     })
     expect(iolFetch).toHaveBeenNthCalledWith(
@@ -293,6 +299,7 @@ describe('/api/stocks/[symbol]/history route', () => {
       ok: true,
       data: [],
       market: 'bCBA',
+      meta: { resolvedVariant: 'sinAjustar' },
       symbol: 'MSFT',
     })
     expect(iolFetch).toHaveBeenNthCalledWith(
@@ -303,6 +310,19 @@ describe('/api/stocks/[symbol]/history route', () => {
       2,
       '/api/v2/bCBA/Titulos/MSFT/Cotizacion/seriehistorica/2026-04-06/2026-05-07/sinAjustar'
     )
+
+    const cachedResponse = await GET(
+      request('/api/stocks/MSFT/history?range=1M&market=bCBA'),
+      context('MSFT')
+    )
+    const cachedBody = await cachedResponse.json()
+
+    expect(cachedBody).toMatchObject({
+      cacheStatus: 'memory-cache',
+      data: [],
+      meta: { resolvedVariant: 'sinAjustar' },
+    })
+    expect(iolFetch).toHaveBeenCalledTimes(2)
   })
 
   it('returns filtered success when the upstream payload is partially invalid', async () => {
@@ -324,6 +344,7 @@ describe('/api/stocks/[symbol]/history route', () => {
       data: [{ date: '2026-05-07', close: 101 }],
       meta: {
         discardedPoints: 1,
+        resolvedVariant: 'ajustada',
         source: 'live',
         stale: false,
         totalPoints: 1,
@@ -338,6 +359,8 @@ describe('/api/stocks/[symbol]/history route', () => {
         totalPoints: 1,
       })
     )
+    expect(iolFetch).toHaveBeenCalledTimes(1)
+    expect(iolFetch.mock.calls[0]?.[0]).toContain('/ajustada')
   })
 
   it('deduplicates dates before exposing history counts', async () => {
@@ -623,6 +646,7 @@ describe('/api/stocks/[symbol]/history route', () => {
     expect(iolFetch).toHaveBeenCalledTimes(1)
     expect(body.meta).toMatchObject({
       stale: false,
+      resolvedVariant: 'ajustada',
     })
   })
 
@@ -643,6 +667,7 @@ describe('/api/stocks/[symbol]/history route', () => {
     expect(response.status).toBe(200)
     expect(body.cacheStatus).toBe('memory-cache')
     expect(body.data).toEqual([{ date: '2026-05-07', close: 101 }])
+    expect(body.meta.resolvedVariant).toBe('sinAjustar')
     expect(iolFetch).toHaveBeenCalledTimes(2)
   })
 
@@ -650,7 +675,7 @@ describe('/api/stocks/[symbol]/history route', () => {
     const iolFetch = vi
       .fn()
       .mockResolvedValueOnce([{ fecha: '2026-05-07', ultimoPrecio: 101 }])
-      .mockRejectedValueOnce(new Error('upstream failed'))
+      .mockRejectedValueOnce(new IolUpstreamNetworkError('upstream failed'))
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { GET } = await loadLiveRoute(iolFetch)
 
@@ -676,6 +701,7 @@ describe('/api/stocks/[symbol]/history route', () => {
       data: [{ date: '2026-05-07', close: 101 }],
       meta: {
         stale: true,
+        resolvedVariant: 'ajustada',
         source: 'live',
       },
     })
@@ -830,6 +856,7 @@ describe('/api/stocks/[symbol]/history route', () => {
       },
     })
     expect(body.data.length).toBeGreaterThan(20)
+    expect(body.meta.resolvedVariant).toBeUndefined()
     expect(body.data[0]).toEqual(
       expect.objectContaining({
         date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
@@ -860,6 +887,7 @@ describe('/api/stocks/[symbol]/history route', () => {
         stale: false,
       },
     })
+    expect(body.meta.resolvedVariant).toBeUndefined()
     expect(iolFetch).not.toHaveBeenCalled()
   })
 })

@@ -4,9 +4,8 @@ import { jsonNoStoreResponse } from '@/lib/server/core/httpResponse'
 import {
   getRequestId,
   getSafeErrorDetails,
-  incrementMetricCounter,
   logServerError,
-  recordMetricDuration,
+  recordApiRequest,
   withRequestIdHeaders,
 } from '@/lib/server/core/observability'
 import {
@@ -74,16 +73,12 @@ function recordQuoteRequest(
   outcome: string,
   source: string
 ) {
-  incrementMetricCounter('api.request.total', 1, {
+  recordApiRequest({
     endpoint: QUOTE_ROUTE,
     method,
     outcome,
     source,
-    status,
-  })
-  recordMetricDuration('api.request.duration_ms', Date.now() - startedAt, {
-    endpoint: QUOTE_ROUTE,
-    method,
+    startedAt,
     status,
   })
 }

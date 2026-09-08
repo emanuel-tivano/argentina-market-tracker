@@ -105,6 +105,7 @@ Generales / despliegue:
 Debug / observabilidad:
 
 - `ENABLE_TOKEN_DEBUG`
+- `LOCAL_DEBUG_TOKEN`
 - `OBSERVABILITY_DEBUG_TOKEN`
 
 Rate limiting / operación:
@@ -120,6 +121,7 @@ Rate limiting / operación:
 Variables usadas en testing/dev controlado:
 
 - `PANEL_RESPONSE_FIXTURE_JSON`
+  - sólo se acepta con `NODE_ENV=test` o `PLAYWRIGHT_E2E_MODE=ssr`
 - `DISABLE_SERVER_DASHBOARD_PREFETCH`
 - `PLAYWRIGHT_TEST_BASE_URL`
 - `PLAYWRIGHT_E2E_MODE`
@@ -198,8 +200,8 @@ Rutas internas actuales:
 Notas importantes:
 
 - `/api/panel?refresh=1` fuerza bypass de cache y puede gatillar cooldown de refresh.
-- `/api/panel?raw=1` sólo está habilitado como debug local cuando `ENABLE_TOKEN_DEBUG=1` y el host es `localhost` / `127.0.0.1` / `::1`.
-- `/api/token` también es debug local-only bajo esas mismas restricciones.
+- `/api/panel?raw=1` sólo está habilitado fuera de producción cuando `ENABLE_TOKEN_DEBUG=1` y `x-local-debug-token` coincide con `LOCAL_DEBUG_TOKEN`.
+- `/api/token` también exige esas mismas condiciones de autorización explícita.
 - `/api/favorites` valida y deduplica items, aplica rate limiting y hace fan-out a quotes individuales con cache y concurrencia acotada.
 - `/api/health` expone diagnóstico compatible con HTTP `200`, incluso como `degraded` ante configuración live/Redis inválida.
 - `/api/health/live` es liveness sin dependencias externas; `/api/health/ready` prueba Redis cuando es requerido y devuelve `503` si su configuración es insegura o no está disponible.
@@ -234,7 +236,7 @@ Rate limiting:
 - Nunca mover `API_USERNAME`, `API_PASSWORD` ni tokens OAuth al cliente.
 - No exponer token completo en respuestas, UI, logs, snapshots ni docs.
 - No exponer `RATE_LIMIT_REDIS_REST_TOKEN`, `OBSERVABILITY_DEBUG_TOKEN` ni valores reales de `.env.local`.
-- `ENABLE_TOKEN_DEBUG=1` sólo habilita debug fuera de producción y desde `localhost` / `127.0.0.1` / `::1`.
+- `ENABLE_TOKEN_DEBUG=1` sólo habilita debug fuera de producción y requiere `LOCAL_DEBUG_TOKEN` mediante `x-local-debug-token`.
 - `/api/debug/metrics` en producción no debe quedar abierto sin token.
 - Mantener `runtime = 'nodejs'` al tocar handlers con integración server-side; hoy está explícito en `panel`, `favorites`, `history`, `health` y `debug/metrics`.
 - Respetar headers y CSP definidos por `middleware.ts` y `next.config.mjs`.
@@ -260,7 +262,7 @@ Rate limiting:
 - `npm run test:coverage` agrega cobertura V8; thresholds globales: statements/lines `80`, functions `75`, branches `70`, más límites específicos de módulos críticos.
 - E2E corren con Playwright sobre `http://localhost:3100` por default vía `scripts/run-e2e.mjs`.
 - Existe cobertura SSR específica con `npm run test:e2e:ssr`.
-- CI usa jobs `quality`, `build` y `e2e`, acciones fijadas por SHA, permisos read-only, cancelación de ejecuciones obsoletas y Node `24.15.0`; corre en demo con `NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3100`.
+- CI usa jobs `quality`, `build` y `e2e`, acciones fijadas por SHA, permisos read-only, cancelación de ejecuciones obsoletas y Node `24.15.0`; `quality` bloquea vulnerabilidades de producción con `npm audit --omit=dev` y corre en demo con `NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3100`.
 
 Antes de dar por válido un cambio de código, correr como mínimo:
 

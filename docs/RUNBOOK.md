@@ -16,11 +16,12 @@ Expected:
 
 - liveness always returns HTTP `200` with `status: "ok"` while the process can
   execute basic application code; it never contacts Redis or the market provider
-- readiness returns HTTP `200` with `status: "ready"` when the configured
-  rate-limit backend is usable or is not required in the selected mode
-- readiness returns HTTP `503` with `status: "not-ready"` when Redis REST is
-  required but missing, invalid, unreachable, timed out, or returned an invalid
-  response
+- readiness returns HTTP `200` with `status: "ready"` when the selected data
+  source has valid local configuration and the configured rate-limit backend is
+  usable or is not required
+- readiness returns HTTP `503` with `status: "not-ready"` when live
+  configuration is missing or invalid, or when required Redis REST is missing,
+  invalid, unreachable, timed out, or returned an invalid response
 - `X-Request-Id` response header for correlation
 
 Readiness uses a read-only Redis `PING`, the configured Redis REST timeout, and
@@ -38,13 +39,20 @@ should migrate to `/api/health/live` and `/api/health/ready`.
 Endpoint roles are intentionally different:
 
 - `/api/health/live`: process liveness only; no Redis or market-provider call
-- `/api/health/ready`: dependency readiness; returns `503` when required Redis
-  configuration is insecure/incomplete or the probe fails
+- `/api/health/ready`: local configuration and dependency readiness; never calls
+  the market provider and returns `503` for unusable live configuration or when
+  a required Redis probe fails
 - `/api/health`: HTTP `200` compatibility diagnostics; reports invalid live
   `API_URL` under `checks.config.invalidLiveConfig` and Redis URL failures under
   `checks.rateLimit`
 
 ### Debug Metrics
+
+Local token/raw debug is separate from metrics debug. `/api/token` and
+`/api/panel?raw=1` require all of the following: non-production runtime,
+`ENABLE_TOKEN_DEBUG=1`, a non-empty `LOCAL_DEBUG_TOKEN`, and the same value in
+the `x-local-debug-token` request header. Hostname and proxy headers do not grant
+access. Never log, return, or commit this token.
 
 Development and test:
 
@@ -112,8 +120,9 @@ calls the provider to validate configuration.
 
 Controlled test inputs are optional and must not contain secrets:
 
-- `PANEL_RESPONSE_FIXTURE_JSON`: JSON object keyed by panel, used only in
-  controlled tests/E2E; unset by default. Invalid JSON fails explicitly.
+- `PANEL_RESPONSE_FIXTURE_JSON`: JSON object keyed by panel, accepted only when
+  `NODE_ENV=test` or `PLAYWRIGHT_E2E_MODE=ssr`; ordinary development and
+  production runtimes reject it explicitly. Invalid JSON also fails explicitly.
 - `DISABLE_SERVER_DASHBOARD_PREFETCH`: only `1` disables SSR dashboard
   prefetch; unset, `0`, or any other value keeps it enabled.
 - `PLAYWRIGHT_TEST_BASE_URL`: Playwright base URL; default
@@ -157,9 +166,19 @@ dates with “last valid payload row wins”, and finally sorts ascending.
 includes invalid upstream rows and valid duplicate rows that do not reach the
 response.
 
+Live history always requests `ajustada` first. It requests `sinAjustar` only
+when the adjusted endpoint returned successfully, its payload normalized
+successfully, and the resulting series was empty. A `404`, another `4xx`,
+`429`, `5xx`, timeout/network failure, invalid JSON, normalization failure, or
+a partial adjusted series never triggers the variant fallback. Live responses
+include the resolved variant in `meta.resolvedVariant`; demo responses omit it.
+`sinAjustar` is a distinct price series and is identified as such in the UI.
+
 Historical freshness has an explicit invariant: `fresh` and `memory-cache`
 require `meta.stale: false`, while stale fallback is `cacheStatus: stale` with
 `meta.stale: true`. Metrics therefore distinguish a normal memory hit from a
+stale fallback. Cache identity remains `market:symbol:range`; the resolved
+variant is stored in the cached value and survives both memory-cache hits and
 stale fallback. When the UI changes symbol, market, or range, it clears the
 previous points and statistics and shows the active request state until a
 response with the same identity arrives; late responses for older keys remain
@@ -286,19 +305,18 @@ Operational notes:
 - partial upstream-budget exhaustion preserves completed rows and records the
   remaining assets in `failedItems`
 
-## Temporary PostCSS Override
+## Dependency Security
 
-Next.js `16.2.6` currently declares exact `postcss@8.4.31`, the vulnerable
-version addressed by this repository's dependency remediation. The project
-temporarily uses a direct safe PostCSS dependency plus the existing
-`"postcss": "$postcss"` override, so Next resolves `8.5.19`. This is outside
-the exact version declared by Next; compatibility is not guaranteed by Next,
-although lint, type-check, unit tests, production build, and E2E have been
-validated in this repository.
+Next.js `16.3.0` declares corrected PostCSS and Sharp versions. The project
+keeps PostCSS as a direct development dependency for the Tailwind pipeline and
+does not override Next.js transitive dependencies. After dependency changes,
+run `npm explain postcss`, `npm explain sharp`, and `npm audit --omit=dev` to
+verify the resolved production graph before deployment.
 
-Remove the override when `npm explain postcss` demonstrates that the installed
-Next version resolves a non-vulnerable compatible PostCSS version without the
-override. Re-run the full validation after removal.
+The CI `quality` job runs `npm audit --omit=dev` after `npm ci` and fails on
+reported production vulnerabilities. The full development graph is managed
+separately so known toolchain-only advisories do not silently weaken the
+production gate or block it through a global suppression.
 
 ## If You See `429`
 

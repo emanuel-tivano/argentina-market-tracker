@@ -187,6 +187,30 @@ export function normalizeStockQuoteDetail(
   }
 }
 
+function normalizeQuoteIdentityPart(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+export function hasMatchingStockQuoteIdentity(
+  detail: Pick<StockQuoteDetail, 'market' | 'symbol'>,
+  expectedSymbol: string,
+  expectedMarket?: string
+): boolean {
+  if (
+    normalizeQuoteIdentityPart(detail.symbol) !==
+    normalizeQuoteIdentityPart(expectedSymbol)
+  ) {
+    return false
+  }
+
+  return (
+    !expectedMarket ||
+    !detail.market ||
+    normalizeQuoteIdentityPart(detail.market) ===
+      normalizeQuoteIdentityPart(expectedMarket)
+  )
+}
+
 export function buildStockQuoteApiPath(
   symbol: string,
   market: StockHistoryMarket = DEFAULT_STOCK_HISTORY_MARKET
@@ -250,10 +274,10 @@ export function isStockQuoteSuccessResponse(
     isStockQuoteDetail(value.data) &&
     isValidFreshnessContract(value) &&
     (value.source === 'demo' || value.source === 'live') &&
-    isStockHistoryMarket(
-      typeof value.market === 'string' ? value.market : null
-    ) &&
-    typeof value.symbol === 'string'
+    typeof value.market === 'string' &&
+    isStockHistoryMarket(value.market) &&
+    typeof value.symbol === 'string' &&
+    hasMatchingStockQuoteIdentity(value.data, value.symbol, value.market)
   )
 }
 
