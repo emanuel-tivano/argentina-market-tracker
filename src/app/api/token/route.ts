@@ -1,4 +1,5 @@
-import { NextResponse, type NextRequest } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { jsonNoStoreResponse } from '@/lib/server/core/httpResponse'
 import { canUseLocalDebug } from '@/lib/server/core/debug'
 import { getCachedToken } from '@/lib/server/upstream/tokenCache'
 import {
@@ -13,8 +14,10 @@ import {
   refreshTokenForDebug,
 } from '@/lib/server/upstream/iol'
 
+export const runtime = 'nodejs'
+
 function notFound(requestId: string) {
-  return NextResponse.json(
+  return jsonNoStoreResponse(
     {
       ok: false,
       error: 'NOT_FOUND',
@@ -47,10 +50,10 @@ export async function GET(req: NextRequest) {
   const cached = getCachedToken()
 
   if (!cached) {
-    return POST(req, requestId)
+    return handleTokenRefresh(req, requestId)
   }
 
-  return NextResponse.json({
+  return jsonNoStoreResponse({
     ok: true,
     cached: true,
     expires_in: null,
@@ -61,8 +64,11 @@ export async function GET(req: NextRequest) {
   })
 }
 
-export async function POST(req: NextRequest, requestId = getRequestId(req)) {
+export async function POST(req: NextRequest) {
+  return handleTokenRefresh(req, getRequestId(req))
+}
 
+async function handleTokenRefresh(req: NextRequest, requestId: string) {
   if (!canUseLocalDebug(req)) {
     return notFound(requestId)
   }
@@ -70,7 +76,7 @@ export async function POST(req: NextRequest, requestId = getRequestId(req)) {
   try {
     const token = await refreshTokenForDebug()
 
-    return NextResponse.json({
+    return jsonNoStoreResponse({
       ok: true,
       expires_in: token.expiresIn,
       ...(isSafeTokenType(token.tokenType) ? { token_type: token.tokenType } : {}),
@@ -89,7 +95,7 @@ export async function POST(req: NextRequest, requestId = getRequestId(req)) {
         status: err.status,
       })
 
-      return NextResponse.json(
+      return jsonNoStoreResponse(
         {
           ok: false,
           error: 'TOKEN_UPSTREAM',
@@ -110,7 +116,7 @@ export async function POST(req: NextRequest, requestId = getRequestId(req)) {
         errorCode: 'TOKEN_FORMAT',
       })
 
-      return NextResponse.json(
+      return jsonNoStoreResponse(
         {
           ok: false,
           error: 'TOKEN_FORMAT',
@@ -130,7 +136,7 @@ export async function POST(req: NextRequest, requestId = getRequestId(req)) {
       errorCode: 'TOKEN_ERROR',
     })
 
-    return NextResponse.json(
+    return jsonNoStoreResponse(
       {
         ok: false,
         error: 'TOKEN_ERROR',

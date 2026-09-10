@@ -37,7 +37,8 @@ variables, demo/live mode, and portfolio positioning, start with
 - `src/app/api/debug/metrics/route.ts`
   - Lightweight metrics endpoint.
 - `src/app/api/token/route.ts`
-  - Localhost-only token debug route.
+  - Explicitly authorized non-production token debug route; hostname alone
+    does not grant access.
 
 ### Dashboard Feature
 
@@ -136,7 +137,7 @@ shared row/formatting utilities stay reusable across the dashboard.
 - `scripts/run-e2e-suite.mjs`
   - SSR and interactive E2E suite runner.
 - `.github/workflows/ci.yml`
-  - Least-privilege, SHA-pinned CI in demo mode: `quality`, `build`, and `e2e`
+  - Least-privilege, SHA-pinned CI in demo mode: `quality` and `e2e` (one production build)
     jobs with concurrency cancellation and per-job timeouts.
 
 ## Architecture Rules
@@ -153,8 +154,8 @@ shared row/formatting utilities stay reusable across the dashboard.
 - Do not duplicate existing contracts from `src/lib/market.ts`,
   `src/lib/panel.ts`, `src/lib/stockHistory.ts`, `src/lib/stockQuote.ts`, or
   `src/lib/favorites.ts`.
-- Keep debug/token routes protected by environment, local-host checks, or
-  observability token checks as applicable.
+- Keep token/raw debug protected by the non-production flag and explicit
+  local debug token; protect production metrics with the observability token.
 
 ## Where To Work
 

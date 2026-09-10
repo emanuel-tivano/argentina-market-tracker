@@ -17,7 +17,9 @@ import {
   getCachedQuote,
   getOrCreateInFlightQuoteRequest,
   getStaleQuote,
+  hasCachedQuoteNotFound,
   setCachedQuote,
+  setCachedQuoteNotFound,
 } from '@/lib/server/upstream/quoteCache'
 import {
   getSafeErrorDetails,
@@ -104,11 +106,20 @@ async function fetchLiveQuote(
     requestId?: string
   }
 ) {
-  const data = await getQuoteBySymbol(market, symbol, {
-    rateLimitIdentity: options.rateLimitIdentity,
-    requestId: options.requestId,
-    route: '/api/favorites',
-  })
+  let data: unknown
+  try {
+    data = await getQuoteBySymbol(market, symbol, {
+      rateLimitIdentity: options.rateLimitIdentity,
+      requestId: options.requestId,
+      route: '/api/favorites',
+    })
+  } catch (error: unknown) {
+    // Write once inside the deduplicated lookup, before any stale fallback.
+    if (error instanceof IolUpstreamHttpError && error.status === 404) {
+      setCachedQuoteNotFound(market, symbol)
+    }
+    throw error
+  }
   const row = normalizeQuoteData(data, { symbol })
   const fetchedAt = new Date().toISOString()
 
@@ -161,6 +172,20 @@ async function getQuoteRow(
         stale: false,
       }
     }
+  }
+
+  // A manual refresh bypasses positive freshness, but not a confirmed 404 TTL.
+  if (hasCachedQuoteNotFound(market, symbol)) {
+    const stale = getStaleQuote(market, symbol)
+    return stale
+      ? {
+          kind: 'row',
+          itemKey,
+          row: stale.data,
+          fetchedAt: stale.fetchedAt,
+          stale: true,
+        }
+      : { kind: 'missing', itemKey }
   }
 
   try {

@@ -1,3 +1,5 @@
+import { parseFinancialNumber as toFiniteNumber } from '@/lib/financialNumber'
+
 export interface PanelTitulo {
   simbolo: string
   descripcion: string
@@ -85,40 +87,6 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
-}
-
-function toFiniteNumber(value: unknown): number | null {
-  if (isFiniteNumber(value)) {
-    return value
-  }
-
-  if (typeof value !== 'string') {
-    return null
-  }
-
-  const trimmedValue = value.trim()
-
-  if (!trimmedValue) {
-    return null
-  }
-
-  let normalizedValue: string
-
-  if (/^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(trimmedValue)) {
-    normalizedValue = trimmedValue.replace(/,/g, '')
-  } else if (/^[+-]?\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(trimmedValue)) {
-    normalizedValue = trimmedValue.replace(/\./g, '').replace(',', '.')
-  } else if (/^[+-]?\d+(?:\.\d+)?$/.test(trimmedValue)) {
-    normalizedValue = trimmedValue
-  } else if (/^[+-]?\d+,\d+$/.test(trimmedValue)) {
-    normalizedValue = trimmedValue.replace(',', '.')
-  } else {
-    return null
-  }
-
-  const parsedValue = Number(normalizedValue)
-
-  return Number.isFinite(parsedValue) ? parsedValue : null
 }
 
 export function isPanelErrorCode(value: unknown): value is PanelErrorCode {
@@ -230,7 +198,12 @@ function setFiniteNumber(
   field: NumericPanelField,
   value: unknown
 ) {
-  const numericValue = toFiniteNumber(value)
+  const numericValue = toFiniteNumber(
+    value,
+    ['volumen', 'cantidadOperaciones', 'laminaMinima', 'lote'].includes(field)
+      ? 'grouped'
+      : 'decimal'
+  )
 
   if (numericValue !== null) {
     target[field] = numericValue
@@ -242,7 +215,10 @@ function setFinitePuntaNumber(
   field: PuntaField,
   value: unknown
 ) {
-  const numericValue = toFiniteNumber(value)
+  const numericValue = toFiniteNumber(
+    value,
+    field === 'cantidadCompra' || field === 'cantidadVenta' ? 'grouped' : 'decimal'
+  )
 
   if (numericValue !== null) {
     target[field] = numericValue

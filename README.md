@@ -1,393 +1,201 @@
 # Argentina Market Tracker
 
 [![CI](https://github.com/emanuel-tivano/argentina-market-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/emanuel-tivano/argentina-market-tracker/actions/workflows/ci.yml)
+
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
+
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
+
 ![Tests](https://img.shields.io/badge/tests-Vitest%20%2B%20Playwright-green)
 
-Dashboard full-stack para explorar paneles del mercado argentino, favoritos,
-cotizaciones detalladas e histórico de activos. Fue construido por **Emanuel
-Tivano** como proyecto de portfolio para demostrar arquitectura con Next.js,
-integración segura con APIs, resiliencia y calidad automatizada.
+Dashboard full-stack del mercado argentino con paneles, favoritos, cotizaciones detalladas e histórico. Un proyecto de portfolio construido con **Next.js, React y TypeScript**, centrado en integración de datos y comportamiento ante fallos.
 
-- **Demo pública:** [argentina-market-tracker.vercel.app](https://argentina-market-tracker.vercel.app)
-- **Código:** [github.com/emanuel-tivano/argentina-market-tracker](https://github.com/emanuel-tivano/argentina-market-tracker)
-- **Modo recomendado para revisión:** `MARKET_DATA_SOURCE=demo`, sin credenciales externas
-- **Contacto público actual:** [repositorio en GitHub](https://github.com/emanuel-tivano/argentina-market-tracker)
+El desafío técnico está en reunir fuentes con contratos distintos, validar sus respuestas y mantener una interfaz útil cuando el proveedor falla. La aplicación combina SSR, un Backend for Frontend (BFF), OAuth server-only, cachés y control de concurrencia, con rate limiting, observabilidad y testing automatizado.
 
-El proyecto es una demostración técnica. No es un broker, una plataforma de
-trading, un servicio garantizado de cotizaciones en tiempo real ni una fuente
-de asesoramiento financiero.
+**[Ver demo](https://argentina-market-tracker.vercel.app)** · [Código](https://github.com/emanuel-tivano/argentina-market-tracker) · [Ejecutar localmente](#ejecución-local) · [Testing](#testing-y-calidad)
+
+La demo utiliza datos sintéticos. El proyecto no es un broker, no ejecuta operaciones financieras ni ofrece asesoramiento financiero.
 
 ![Dashboard de escritorio de Argentina Market Tracker](./docs/screenshots/desktop.png)
 
-## En un minuto
+## Highlights técnicos
 
-Argentina Market Tracker resuelve la presentación consistente de datos que
-pueden provenir de paneles, cotizaciones puntuales e históricos con contratos
-distintos. El navegador nunca accede al proveedor externo: consume un Backend
-for Frontend interno que valida, normaliza, limita y observa cada operación.
+- **SSR + SWR:** contenido inicial desde el servidor y revalidación cliente; el polling de paneles se pausa cuando la pestaña está oculta.
+- **BFF interno:** el navegador consume rutas propias. OAuth y las llamadas al proveedor permanecen en el servidor; los contratos se validan antes de la UI.
+- **Caché fresh/stale:** snapshots con vigencia explícita y fallback acotado ante fallos recuperables; una lectura fresh no espera un refresh del panel.
+- **Concurrencia controlada:** deduplicación in-flight por clave, fan-out acotado en Favoritos y caché negativa para cotizaciones con un 404 confirmado.
+- **Control y diagnóstico:** rate limiting, request IDs, health checks, métricas agregadas y logs sanitizados.
+- **Validación repetible:** modo demo determinístico, tests de contratos, servicios y UI, más CI con cobertura y E2E sobre un build de producción.
 
-No es una interfaz estática ni un tutorial aislado. El repositorio incluye:
+## Qué construí
 
-- SSR inicial para dashboard y páginas de activos, seguido de revalidación con SWR
-- BFF con contratos tipados y acceso upstream exclusivamente server-side
-- modos `demo` determinístico y `live` configurable
-- caché fresh/stale, deduplicación de solicitudes concurrentes y rate limiting
-- estados explícitos de carga, error, vacío, stale y degradación parcial
-- observabilidad con request IDs, métricas agregadas, health checks y logs sanitizados
-- pruebas unitarias, de componentes, hooks, Route Handlers, SSR y flujos E2E
+Diseñé e implementé el proyecto de punta a punta:
 
-## Problema que resuelve
+- La arquitectura App Router y la separación entre UI, contratos, BFF y servicios.
+- El dashboard responsive, favoritos, detalle de activos, histórico y temas.
+- La integración upstream con OAuth, normalización, SSR y políticas de caché.
+- Los límites de requests y concurrencia, la observabilidad, los tests, CI y la documentación técnica y operativa.
 
-La experiencia reúne panel líder, panel general y CEDEARs; permite ordenar
-cotizaciones, persistir favoritos y consultar detalle, puntas e histórico de
-cada activo. La complejidad principal no está sólo en la tabla: está en
-integrar fuentes heterogéneas sin exponer credenciales, evitar trabajo repetido
-y conservar una experiencia útil cuando una parte del sistema falla.
+Elegí mantener una fuente demo dentro de la misma arquitectura para que el proyecto pueda revisarse sin credenciales ni dependencia de la disponibilidad del proveedor.
 
-El modo demo permite revisar la aplicación de forma estable y segura. El modo
-live demuestra la misma arquitectura contra un proveedor real, con OAuth,
-timeouts, retry de autenticación y validación antes de llegar a React.
+## Arquitectura
 
-## Responsabilidad del autor
+El navegador nunca accede al proveedor externo. Los Route Handlers validan las requests públicas y aplican rate limiting; los servicios resuelven la fuente, la caché y la normalización de la respuesta.
 
-Emanuel Tivano diseñó e implementó el proyecto de extremo a extremo:
-
-- arquitectura App Router y separación entre cliente, BFF, contratos y servicios server-only
-- dashboard responsive, favoritos, detalle de activos, histórico y temas claro/oscuro
-- integración demo/live, autenticación upstream y normalización de payloads
-- SSR, cachés, stale fallback, deduplicación concurrente y rate limiting
-- observabilidad, seguridad de rutas debug, tests automatizados y CI
-- documentación para ejecución, revisión técnica y operación
-
-Estas responsabilidades describen trabajo verificable en el repositorio; no
-representan una plataforma financiera productiva ni experiencia laboral no
-documentada.
-
-## Características principales
-
-- Paneles de mercado: líder, general y CEDEARs
-- Favoritos persistidos localmente y actualizados mediante `/api/favorites`
-  sólo mientras el panel Favoritos está visible
-- Cotización detallada, sesión, liquidez, puntas e histórico por activo
-- SSR del panel inicial y cabecera inicial de páginas de activos
-- Revalidación cliente con polling, pausa por pestaña oculta y refresh manual
-- Modal desktop con carga diferida y página dedicada para navegación mobile
-- Metadata por activo, canonical, sitemap, robots y Open Graph
-- Indicador visible de fuente demo/live
-- Health check y métricas de diagnóstico protegidas según ambiente
-
-## Arquitectura resumida
-
-```txt
-Browser
-  Next.js pages + dashboard cliente
-        |
-        | fetches internos
-        v
-Route Handlers en src/app/api (BFF)
-  validación de request y contratos
-  rate limiting y respuestas consistentes
-        |
-        v
-Servicios en src/lib/server
-  demo determinístico o integración live
-  OAuth / timeout / retry
-  caché fresh + stale e in-flight dedupe
-  observabilidad y normalización
+```mermaid
+flowchart TD
+    Browser["Navegador · React + SWR"] --> BFF["Next.js / BFF · validación de request y rate limiting"]
+    SSR["Next.js · SSR inicial"] --> Services["Servicios server-side · caché y deduplicación"]
+    BFF --> Services
+    Services --> Demo["Demo · datos determinísticos"]
+    Services --> Live["Live · OAuth server-only, timeout y retry"]
+    Live --> Provider["Proveedor externo"]
+    Demo --> Contract["Normalización y contrato interno"]
+    Provider --> Contract
+    Contract --> Snapshot["Snapshot validado · respuesta interna"]
+    Snapshot --> BFF
+    Snapshot --> SSR
+    BFF --> Browser
+    SSR --> Browser
 ```
 
-Reglas centrales:
+El SSR inicial utiliza los servicios directamente y entrega datos a los componentes cliente. Las actualizaciones posteriores pasan por el BFF. La caché evita repetir la consulta externa cuando hay un snapshot vigente. Las responsabilidades quedan separadas en tres áreas:
 
-- el browser no llama al proveedor externo
-- los payloads upstream se validan antes de llegar a componentes
-- los contratos compartidos viven en `src/lib/**`
-- integración, caché, límites y observabilidad viven en `src/lib/server/**`
-- cambios de contrato actualizan validadores, consumidores y tests juntos
+- `src/features/dashboard/`: componentes, hooks y estado cliente.
+- `src/lib/`: contratos compartidos, validadores y normalizadores.
+- `src/lib/server/`: integración externa, cachés, límites y observabilidad.
 
-El mapa detallado está en
-[ESTRUCTURA_PROYECTO.md](./ESTRUCTURA_PROYECTO.md). La guía operativa está en
-[docs/RUNBOOK.md](./docs/RUNBOOK.md).
+El mapa de archivos y flujos está en [ESTRUCTURA_PROYECTO.md](./ESTRUCTURA_PROYECTO.md).
 
-## Decisiones técnicas destacadas
+## Decisiones técnicas
 
 | Decisión | Problema resuelto | Trade-off |
 | --- | --- | --- |
-| BFF interno | Aísla credenciales, OAuth y contratos del proveedor. | Agrega una capa server-side que debe operarse y probarse. |
-| SSR + SWR | Entrega contenido inicial y mantiene datos actualizados. | Requiere coordinar fallback, hidratación y revalidación. |
-| Demo/live | Ofrece revisión pública estable sin perder integración real. | Demo no representa datos reales; live depende del upstream. |
-| Caché fresh/stale | Reduce latencia y conserva datos conocidos ante fallos breves. | En memoria, el estado es local a cada instancia. |
-| Deduplicación in-flight | Evita llamadas duplicadas para una misma clave concurrente. | Sólo coordina solicitudes dentro del mismo proceso. |
-| Rate limiting configurable | Protege al BFF y al proveedor ante abuso o ráfagas. | Para alcance global requiere Redis REST y proxy confiable. |
-| Validación de payloads | Impide que estructuras upstream inválidas contaminen la UI. | Obliga a mantener adaptadores explícitos por contrato. |
-| Observabilidad liviana | Permite correlacionar fallos sin exponer payloads ni secretos. | No reemplaza una plataforma externa de observabilidad. |
+| BFF interno | Aísla OAuth y adapta los contratos del proveedor. | Suma una capa que necesita validación y tests propios. |
+| SSR + SWR | Entrega datos iniciales y permite revalidarlos en el cliente. | Hay que coordinar hidratación, errores e identidad de cada consulta. |
+| Caché fresh/stale + deduplicación | Reduce llamadas repetidas y conserva snapshots ante fallos recuperables. | Los datos pueden estar desactualizados; su edad está acotada y se informa. |
+| Caché negativa por recurso | Evita repetir consultas de símbolos que devolvieron 404. | El símbolo puede seguir figurando como ausente hasta vencer el TTL; detalle y Favoritos no comparten negativos. |
+| Fan-out acotado en Favoritos | Limita las consultas simultáneas al proveedor. | Los lotes grandes tardan más y pueden devolver resultados parciales. |
+| Rate limiting configurable | Limita requests públicas y consultas upstream. | El alcance distribuido requiere Redis REST y una identidad de cliente confiable. |
+| Demo/live | Permite una revisión repetible y una integración externa real. | La demo es sintética; live depende del proveedor. |
 
-## Stack real
+## Funcionalidades
 
-| Área | Tecnologías |
-| --- | --- |
-| Aplicación | Next.js 16, React 19, App Router, TypeScript 6 strict |
-| UI y datos cliente | Tailwind CSS 4, SWR 2, lightweight-charts |
-| Backend for Frontend | Route Handlers, Node.js runtime, Fetch API, OAuth upstream |
-| Calidad | ESLint 9, contratos tipados, validadores y normalizadores |
-| Testing | Vitest 4, Testing Library, jsdom, Playwright |
-| Operación | GitHub Actions, health checks, métricas, request IDs, Redis REST opcional |
-
-## Ejecución local
-
-### Requisitos
-
-- Node `>=24.15.0 <25`
-- npm
-- no requiere base de datos, Prisma ni seed
-
-### Instalación
-
-```bash
-npm install
-```
-
-Crear el archivo local de entorno:
-
-```bash
-cp .env.local.example .env.local
-```
-
-En PowerShell:
-
-```powershell
-Copy-Item -LiteralPath .env.local.example -Destination .env.local
-```
-
-Iniciar desarrollo:
-
-```bash
-npm run dev
-```
-
-Abrir `http://localhost:3000`.
-
-## Variables de entorno
-
-[.env.local.example](./.env.local.example) es la fuente de referencia. Nunca
-se deben guardar secretos reales en commits, logs, issues o snapshots.
-
-### Demo y despliegue
-
-| Variable | Requerida | Uso |
-| --- | --- | --- |
-| `MARKET_DATA_SOURCE` | No | `demo` para revisión pública; `live` para integración controlada. |
-| `NEXT_PUBLIC_SITE_URL` | Producción fuera de Vercel | Origen público HTTPS para metadata, sitemap, robots y Open Graph. |
-| `APP_VERSION` | No | Versión opcional expuesta por `/api/health`. |
-
-Si `NEXT_PUBLIC_SITE_URL` no existe, el SEO usa primero las variables de
-producción de Vercel. Fuera de producción utiliza `http://localhost:3000`; una
-producción sin origen válido falla de forma explícita.
-
-### Integración live
-
-| Variable | Uso |
-| --- | --- |
-| `API_URL` | Base URL HTTPS del proveedor externo; admite pathname base normalizado. |
-| `TOKEN_ENDPOINT` | Ruta del endpoint OAuth. |
-| `API_USERNAME` | Usuario upstream, sólo servidor. |
-| `API_PASSWORD` | Contraseña upstream, sólo servidor. |
-| `PANEL_LIDER_ENDPOINT` | Endpoint upstream del panel líder. |
-| `PANEL_GENERAL_ENDPOINT` | Endpoint upstream del panel general. |
-| `PANEL_CEDEARS_ENDPOINT` | Endpoint upstream de CEDEARs. |
-
-Los cuatro endpoints configurables son paths relativos estrictos. Admiten
-rutas anidadas como `api/v2/panel/lider`, con o sin barras exteriores, pero
-rechazan URLs absolutas o protocol-relative, query, fragment, backslashes,
-caracteres de control, traversal (`.`/`..`) y sus variantes codificadas. Se
-resuelven debajo del pathname base de `API_URL` y la URL final conserva siempre
-su origin. Las requests OAuth y bearer usan `redirect: error`; el proveedor
-debe exponer directamente la URL HTTPS configurada.
-
-### Operación y debug
-
-| Variable | Uso |
-| --- | --- |
-| `ENABLE_TOKEN_DEBUG` | Habilita debug local de token/raw fuera de producción. |
-| `LOCAL_DEBUG_TOKEN` | Credencial requerida mediante `x-local-debug-token` para `/api/token` y `/api/panel?raw=1`; nunca habilitada en producción. |
-| `OBSERVABILITY_DEBUG_TOKEN` | Protege `/api/debug/metrics` en producción. |
-| `FAVORITES_QUOTE_CONCURRENCY` | Entero decimal estricto `1-10` para fan-out de favoritos; valores parciales usan el default `4`. |
-| `PANEL_CACHE_FRESH_TTL_MS` / `PANEL_CACHE_STALE_TTL_MS` | Ventana fresh y edad máxima del snapshot de panel; defaults `30s` / `2m`. |
-| `STOCK_QUOTE_FRESH_TTL_MS` / `STOCK_QUOTE_STALE_TTL_MS` | Ventana fresh y edad máxima compartidas por detalle y Favoritos; defaults `15s` / `2m`. |
-| `STOCK_QUOTE_NOT_FOUND_TTL_MS` | Caché negativa de un `404` confirmado; default `30s`, rango `1s-5m`. |
-| `RATE_LIMIT_STORE` | `auto`, `memory` o `redis-rest`. |
-| `RATE_LIMIT_TRUSTED_PROXY` | `none` o `vercel`. |
-| `RATE_LIMIT_REDIS_REST_URL` | Origen REST HTTPS de Redis/KV, sin pathname, query ni fragment. |
-| `RATE_LIMIT_REDIS_REST_TOKEN` | Token del almacenamiento distribuido. |
-| `RATE_LIMIT_REDIS_TIMEOUT_MS` | Timeout `2000-5000ms` compartido por operaciones y readiness Redis; default `3000ms`. |
-
-Las variables adicionales usadas por E2E y fixtures controlados están
-documentadas en [.env.local.example](./.env.local.example) y
-[AGENTS.md](./AGENTS.md).
-
-Los TTL se expresan en milisegundos. El stale TTL es la edad máxima total
-desde `fetchedAt`, no tiempo adicional después de la ventana fresh. Los valores
-inválidos o fuera de rango vuelven a los defaults; si una pareja configura
-`fresh >= stale`, ambos TTL de esa pareja vuelven a sus defaults. Los rangos y
-el comportamiento por ambiente se detallan en el runbook.
-
-`API_URL` y `RATE_LIMIT_REDIS_REST_URL` rechazan credenciales embebidas, query,
-fragment y protocolos distintos de HTTP/HTTPS. En producción ambas exigen
-HTTPS. Fuera de producción, HTTP sólo se admite para `localhost`, `127.0.0.1`
-o `::1`. `API_URL` admite un pathname base; Redis REST exige sólo el origen.
-
-## Scripts
-
-```bash
-npm run dev              # desarrollo en puerto 3000
-npm run dev:e2e          # desarrollo E2E en puerto 3100
-npm run lint             # ESLint
-npm run type-check       # TypeScript --noEmit
-npm run test             # Vitest
-npm run test:coverage    # Vitest con cobertura V8 y thresholds
-npm run build            # build de producción
-npm run validate:local   # lint + type-check + test + build
-npm run validate         # validación local + suite E2E
-```
-
-E2E específicos:
-
-```bash
-npm run test:e2e
-npm run test:e2e:ssr
-npm run test:e2e:app
-npm run test:e2e:ui
-```
-
-`npm run validate` es el flujo más cercano a CI. `deps:update` modifica
-dependencias y lockfile, por lo que no forma parte de la validación habitual.
-
-## Testing y validación
-
-La estrategia valida comportamiento en distintos límites:
-
-- contratos y normalización de datos
-- servicios, cachés, rate limiting y stale fallback
-- hooks y estados de UI
-- componentes y accesibilidad estructural
-- Route Handlers y códigos/headers de error
-- SSR inicial y metadata de activos
-- flujos interactivos y responsive con Playwright
-
-GitHub Actions ejecuta en modo demo tres jobs encadenados: `quality` instala,
-ejecuta lint, type-check y tests con cobertura; `build` valida el build de
-Next.js; `e2e` construye una vez y corre las suites SSR y app sobre Chromium.
-Las acciones están fijadas por SHA, los jobs tienen timeout y las ejecuciones
-obsoletas de una rama o PR se cancelan. Los thresholds globales de cobertura
-son statements `80`, lines `80`, functions `75` y branches `70`, con límites
-específicos de no regresión para módulos críticos. `coverage/` es generado y no
-se versiona.
-
-## Estructura principal
-
-```txt
-src/
-  app/                         páginas, layout, metadata y Route Handlers
-  features/dashboard/          UI, hooks y flujos del dashboard
-  lib/                         contratos, validación y formateo compartido
-  lib/server/                  integración, caché, límites y observabilidad
-e2e/                           pruebas Playwright
-docs/                          runbook y capturas
-scripts/                       runners E2E
-.github/workflows/ci.yml       validación continua
-```
-
-## Rutas internas del BFF
-
-- `GET /api/panel?type=lider|general|cedears`
-- `GET /api/favorites?items=bCBA:ALUA,bCBA:AAPL`
-- `GET /api/stocks/[symbol]/quote?market=bCBA`
-- `GET /api/stocks/[symbol]/history?range=1W|1M|3M|6M|1Y&market=bCBA`
-- `GET /api/health/live`, liveness sin dependencias externas
-- `GET /api/health/ready`, readiness del backend de rate limiting
-- `GET /api/health`, diagnóstico compatible; puede responder `200 degraded`
-- `GET /api/debug/metrics`
-- `GET /api/token`, sólo para debug local autorizado
-
-Las cotizaciones separan tres controles: `quote-public` limita el endpoint de
-detalle, `favorites-public` limita cada request batch de favoritos y
-`quote-upstream` protege cada lookup real al proveedor. Un cache hit no consume
-`quote-upstream`; dos símbolos distintos sí consumen dos unidades. Si el
-presupuesto se agota durante el fan-out, favoritos conserva los resultados ya
-obtenidos y declara los restantes en `failedItems`.
-
-El rate limiter público falla cerrado si no puede verificar el límite. Cachés,
-deduplicación y límites configurados en memoria son process-local. En respuestas
-`429`, `Retry-After` fija el mínimo para el retry automático; un retry manual
-sigue sujeto a la misma ventana del servidor y el cliente evita ejecuciones
-manuales concurrentes.
-
-`/api/health/live` sólo confirma que el proceso responde y siempre evita
-dependencias externas. `/api/health/ready` prueba Redis con `PING` cuando es
-requerido y devuelve `503` ante configuración insegura o dependencia no
-disponible. `/api/health` conserva HTTP `200` para diagnóstico y marca
-`degraded` una `API_URL`, `TOKEN_ENDPOINT`, `PANEL_LIDER_ENDPOINT`,
-`PANEL_GENERAL_ENDPOINT` o `PANEL_CEDEARS_ENDPOINT` live inválida, o una
-configuración Redis insegura. Sólo informa nombres de variables inválidas y no
-consulta al upstream.
-
-El histórico usa `cacheStatus: fresh` para una carga nueva,
-`cacheStatus: memory-cache` para un hit vigente y `cacheStatus: stale` para el
-fallback desactualizado. Las dos primeras variantes exigen `meta.stale: false`;
-la última exige `meta.stale: true`. Al cambiar rango, símbolo o mercado, la UI
-deja de mostrar los puntos y estadísticas anteriores y presenta loading/error
-hasta recibir una respuesta cuya identidad coincida con la solicitud activa.
-
-## Modo demo y modo live
-
-`MARKET_DATA_SOURCE=demo` usa datos determinísticos locales. Es la opción
-recomendada para portfolio porque no necesita secretos y produce una revisión
-repetible.
-
-`MARKET_DATA_SOURCE=live` habilita el proveedor externo desde el servidor. Se
-debe usar con credenciales privadas, configuración de rate limiting adecuada y
-las variables live completas.
-
-## Capturas
-
-- [Dashboard desktop](./docs/screenshots/desktop.png)
-- [Detalle con histórico](./docs/screenshots/modal-history.png)
-- [Dashboard mobile](./docs/screenshots/mobile.png)
+- Panel líder, panel general y CEDEARs, con ordenamiento de cotizaciones.
+- Favoritos persistidos localmente y actualizados al activar ese panel.
+- Detalle de activos con cotización, sesión, liquidez y puntas de compra/venta.
+- Histórico por rango, con estados de carga, error, vacío y datos desactualizados.
+- Modal en desktop y página de detalle en mobile; temas claro y oscuro.
+- Metadata por activo, canonical, sitemap, robots y Open Graph.
 
 ![Detalle e histórico de un activo](./docs/screenshots/modal-history.png)
 
-## Operación
+Más vistas: [dashboard desktop](./docs/screenshots/desktop.png) · [dashboard mobile](./docs/screenshots/mobile.png).
 
-[docs/RUNBOOK.md](./docs/RUNBOOK.md) documenta:
+## Stack
 
-- liveness, readiness y diagnóstico compatible `degraded`
-- correlación mediante `X-Request-Id`
-- métricas y rutas debug
-- fallos de rate limiting
-- degradación de favoritos e histórico
-- troubleshooting demo/live y rollback seguro
+Versiones declaradas en [package.json](./package.json); las dependencias resueltas están fijadas en [package-lock.json](./package-lock.json).
+
+| Área | Tecnologías |
+| --- | --- |
+| Aplicación | Next.js `16.3.4` · React `19.2.6` · App Router |
+| Tipado | TypeScript `6.0.3` con `strict` |
+| UI y datos | Tailwind CSS `^4.3.0` · SWR `2.4.1` · lightweight-charts `^5.2.0` |
+| Testing | Vitest + coverage V8 `^4.1.11` · Testing Library · Playwright `^1.60.0` |
+| Calidad y runtime | ESLint `^9.39.4` · Node `>=24.15.0 <25` · GitHub Actions |
+
+## Testing y calidad
+
+Las pruebas cubren los límites entre datos externos, servicios y experiencia de usuario:
+
+- Normalizadores y contratos: números financieros, payloads inválidos e identidad y frescura de las respuestas.
+- Servicios y cachés: TTL, stale fallback, negativos 404, deduplicación, concurrencia y limpieza de requests en vuelo.
+- Route Handlers: validación de entrada, códigos HTTP, headers, request IDs y protección de rutas debug.
+- Hooks y componentes: loading/error/empty, favoritos, cambios de activo o rango, y navegación por teclado.
+- SSR y E2E: contenido antes de hidratar, navegación, modal e histórico en Chromium desktop y mobile.
+
+La cobertura V8 tiene thresholds globales: statements `80`, lines `80`, functions `75` y branches `70`, además de mínimos específicos para módulos críticos. [vitest.config.ts](./vitest.config.ts) define estos controles. El informe se genera con `npm run test:coverage`; no se versiona.
+
+El [pipeline CI](./.github/workflows/ci.yml) tiene dos jobs encadenados:
+
+1. `quality`: `npm ci`, auditoría de dependencias de producción, lint, type-check y tests con cobertura.
+2. `e2e`: instalación aislada, un build de producción y suites SSR y app contra ese mismo build.
+
+Las acciones están fijadas por SHA, con permisos de lectura, timeouts y cancelación de ejecuciones obsoletas. CI utiliza datos demo.
+
+### Comandos de validación
+
+```bash
+npm run validate        # lint + type-check + tests + build + SSR/app E2E
+npm run test:coverage   # cobertura V8 y thresholds
+npm audit --omit=dev    # auditoría de dependencias de producción
+```
+
+Antes del primer E2E, instalá Chromium con `npx playwright install chromium`. Para ejecutar por separado: `npm run test`, `npm run test:e2e:ssr` o `npm run test:e2e:app`. `test:e2e`, `test:e2e:ssr` y `test:e2e:app` construyen la app antes de probarla; los runners usan por defecto el puerto `3100`. La referencia completa de comandos está en [AGENTS.md](./AGENTS.md).
+
+## Seguridad
+
+- Credenciales y tokens OAuth exclusivamente server-side; la UI no recibe el token completo ni payloads upstream sin normalizar.
+- URLs upstream validadas y endpoints relativos estrictos, con rechazo de traversal y URLs absolutas; las requests con secretos no siguen redirects.
+- CSP con nonce en producción, headers de seguridad y APIs con `Cache-Control: no-store`.
+- Debug de token sólo fuera de producción, habilitado explícitamente y protegido con `LOCAL_DEBUG_TOKEN`; métricas protegidas por token en producción.
+- El rate limiter público falla cerrado si no puede verificar el límite en el store requerido.
+
+Las condiciones por ambiente y los procedimientos de diagnóstico están en [docs/RUNBOOK.md](./docs/RUNBOOK.md).
+
+## Ejecución local
+
+Requiere Node `>=24.15.0 <25` y npm. Desde la raíz del repositorio:
+
+```bash
+npm install
+cp .env.local.example .env.local
+npm run dev
+```
+
+Abrí [localhost:3000](http://localhost:3000). El ejemplo configura `demo`: no requiere credenciales externas, base de datos ni seed. En PowerShell también podés copiar el archivo con `Copy-Item .env.local.example .env.local`.
+
+## Demo vs live
+
+- **Demo:** datos sintéticos determinísticos, sin secretos upstream. Permite explorar el portfolio y repetir pruebas sin depender de terceros.
+- **Live:** integración real desde el servidor con el proveedor externo. Requiere credenciales y configuración; está sujeta a sus contratos, disponibilidad y límites.
+
+La fuente se selecciona con `MARKET_DATA_SOURCE`. La interfaz identifica el modo demo con el badge «Demo público · datos sintéticos».
+
+## Variables de entorno
+
+| Variable | Para qué sirve |
+| --- | --- |
+| `MARKET_DATA_SOURCE` | `demo` para explorar; `live` para integración externa. |
+| `NEXT_PUBLIC_SITE_URL` | Origen público para metadata y SEO; revisar al desplegar. |
+| `API_URL`, `API_USERNAME`, `API_PASSWORD` | Conexión y credenciales del proveedor, sólo en live y sólo en servidor. |
+
+[.env.local.example](./.env.local.example) contiene los endpoints live y las opciones de caché, concurrencia, Redis y debug. Los requisitos de despliegue, rangos y reglas de validación están en el [runbook](./docs/RUNBOOK.md). Los valores reales se configuran fuera del control de versiones.
+
+## Endpoints y operación
+
+| Ruta | Uso |
+| --- | --- |
+| `GET /api/panel?type=lider` | Panel líder; también admite `general` y `cedears`. |
+| `GET /api/favorites?items=bCBA:ALUA,bCBA:AAPL` | Cotizaciones de favoritos. |
+| `GET /api/stocks/[symbol]/quote?market=bCBA` | Cotización detallada. |
+| `GET /api/stocks/[symbol]/history?range=1M&market=bCBA` | Histórico por activo y rango. |
+| `GET /api/health/live` · `GET /api/health/ready` | Liveness y readiness. |
+
+[ESTRUCTURA_PROYECTO.md](./ESTRUCTURA_PROYECTO.md) ubica los handlers. El [runbook](./docs/RUNBOOK.md) explica el diagnóstico compatible `/api/health`, métricas, debug, budgets internos, respuestas 429/503 y recuperación ante fallos.
 
 ## Limitaciones conocidas
 
-- el modo demo es sintético y no representa cotizaciones reales
-- live depende de disponibilidad, contratos y credenciales de un tercero
-- cachés, deduplicación y métricas en memoria son locales a cada instancia
-- el rate limiting sólo es distribuido cuando se configura Redis REST
-- favoritos hace fan-out acotado porque no existe un endpoint batch upstream
-- no existe persistencia propia de histórico ni una base de datos
-- la aplicación no ejecuta órdenes ni ofrece asesoramiento financiero
+- La demo es sintética; no representa cotizaciones reales.
+- Live depende de disponibilidad, contratos y credenciales de un tercero.
+- Cachés, deduplicación y métricas en memoria son process-local.
+- El rate limiting distribuido requiere Redis REST; en memoria no es global.
+- Favoritos realiza consultas individuales con concurrencia acotada.
+- No hay base de datos ni persistencia propia del histórico.
+- La aplicación no ejecuta órdenes ni ofrece asesoramiento financiero.
 
-## Autor y contacto
+## Contacto
 
-**Emanuel Tivano** diseñó y desarrolló Argentina Market Tracker como proyecto
-de portfolio técnico.
-
-- Repositorio: [github.com/emanuel-tivano/argentina-market-tracker](https://github.com/emanuel-tivano/argentina-market-tracker)
-- Demo: [argentina-market-tracker.vercel.app](https://argentina-market-tracker.vercel.app)
-- LinkedIn: `[Agregar LinkedIn]`
-- Correo profesional: `[Agregar correo profesional]`
-
-Estas dos marcas son editoriales y no se renderizan en la interfaz. Para
-publicar los canales, reemplazá los valores `null` de
-`LINKEDIN_URL` y `CONTACT_EMAIL` en `src/app/about/page.tsx` por los datos reales.
+- [Emanuel Tivano en GitHub](https://github.com/emanuel-tivano)
+- [Repositorio](https://github.com/emanuel-tivano/argentina-market-tracker)
+- [Demo](https://argentina-market-tracker.vercel.app)

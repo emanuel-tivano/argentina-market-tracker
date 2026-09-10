@@ -18,6 +18,8 @@ type QuoteCacheEntry = QuoteCacheEntryValue & {
 }
 
 const quoteCache = new Map<string, QuoteCacheEntry>()
+// Cotizacion and CotizacionDetalle are distinct resources: never share 404s.
+const quoteNotFoundCache = new Map<string, number>()
 const inFlightQuoteRequests = new Map<string, Promise<QuoteCacheEntryValue>>()
 
 function getCacheKey(market: StockHistoryMarket, symbol: string): string {
@@ -25,6 +27,19 @@ function getCacheKey(market: StockHistoryMarket, symbol: string): string {
 }
 
 function pruneQuoteCache(now = Date.now()) {
+  for (const [key, expiresAt] of quoteNotFoundCache) {
+    if (now >= expiresAt) quoteNotFoundCache.delete(key)
+  }
+  const negativeEntries = [...quoteNotFoundCache.entries()].sort(
+    ([, first], [, second]) => first - second
+  )
+  for (const [key] of negativeEntries.slice(
+    0,
+    Math.max(0, negativeEntries.length - QUOTE_CACHE_MAX_KEYS)
+  )) {
+    quoteNotFoundCache.delete(key)
+  }
+
   for (const [key, entry] of quoteCache) {
     if (now >= entry.staleUntil) {
       quoteCache.delete(key)
@@ -118,6 +133,7 @@ export function setCachedQuote(
   symbol: string,
   value: QuoteCacheEntryValue
 ) {
+  quoteNotFoundCache.delete(getCacheKey(market, symbol))
   quoteCache.set(getCacheKey(market, symbol), {
     ...value,
     freshUntil: Date.now() + ENV.STOCK_QUOTE_FRESH_TTL_MS,
@@ -128,6 +144,25 @@ export function setCachedQuote(
     event: 'write',
     market,
   })
+}
+
+export function hasCachedQuoteNotFound(
+  market: StockHistoryMarket,
+  symbol: string
+): boolean {
+  pruneQuoteCache()
+  return quoteNotFoundCache.has(getCacheKey(market, symbol))
+}
+
+export function setCachedQuoteNotFound(
+  market: StockHistoryMarket,
+  symbol: string
+) {
+  quoteNotFoundCache.set(
+    getCacheKey(market, symbol),
+    Date.now() + ENV.STOCK_QUOTE_NOT_FOUND_TTL_MS
+  )
+  pruneQuoteCache()
 }
 
 export function getOrCreateInFlightQuoteRequest(
@@ -158,5 +193,6 @@ export function getOrCreateInFlightQuoteRequest(
 
 export function clearQuoteCacheForTests() {
   quoteCache.clear()
+  quoteNotFoundCache.clear()
   inFlightQuoteRequests.clear()
 }

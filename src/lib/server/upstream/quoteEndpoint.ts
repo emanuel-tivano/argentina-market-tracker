@@ -16,7 +16,8 @@ export function getQuoteDetailEndpoint(
   market: string,
   symbol: string
 ): string {
-  return `/api/v2/${encodeURIComponent(market)}/Titulos/${encodeURIComponent(
+  // Both quote paths use the canonical bCBA market from the shared contract.
+  return `/api/v2/${encodeURIComponent(normalizeQuoteMarket(market))}/Titulos/${encodeURIComponent(
     symbol
   )}/CotizacionDetalle`
 }

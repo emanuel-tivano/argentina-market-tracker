@@ -313,14 +313,8 @@ export function getOrCreatePanelResponse(
     return getOrCreateUpstreamPanelResponse(type, 'refresh')
   }
 
-  // A normal read joins a pending refresh before consulting the cache so both
-  // consumers observe the same current upstream result.
-  const inFlight = inFlightPanelRequests.get(type)
-
-  if (inFlight) {
-    return inFlight.promise
-  }
-
+  // Fresh snapshots remain readable while a manual refresh updates them.
+  // Misses join the single upstream request per panel, preventing write races.
   const cached = getCachedPanelResponse(type)
 
   if (cached) {

@@ -758,6 +758,57 @@ describe('/api/panel route', () => {
     expect(iolFetch).toHaveBeenCalledTimes(1)
   })
 
+  it('serves fresh reads immediately during a deduplicated manual refresh', async () => {
+    let resolveRefresh!: (value: unknown) => void
+    const oldRows = [{ simbolo: 'ALUA', descripcion: 'Aluar', ultimoPrecio: 100 }]
+    const newRows = [{ simbolo: 'ALUA', descripcion: 'Aluar', ultimoPrecio: 101 }]
+    const iolFetch = vi.fn().mockResolvedValueOnce(oldRows).mockImplementationOnce(() =>
+      new Promise((resolve) => { resolveRefresh = resolve })
+    )
+    const { GET } = await loadLiveRoute(iolFetch)
+    const { getPanelCacheStats } = await import('@/lib/server/panel/panelCache')
+    await GET(request('/api/panel?type=lider'))
+    const refresh = GET(request('/api/panel?type=lider&refresh=1'))
+    await vi.waitFor(() => expect(iolFetch).toHaveBeenCalledTimes(2))
+    const secondRefresh = GET(request('/api/panel?type=lider&refresh=1'))
+    const normal = await GET(request('/api/panel?type=lider'))
+    expectPanelSuccess(await normal.json(), oldRows, 'memory-cache')
+    expect(normal.headers.get('Cache-Control')).toBe('no-store')
+    expect(getPanelCacheStats().inFlight).toBe(1)
+    resolveRefresh(newRows)
+    for (const response of await Promise.all([refresh, secondRefresh])) {
+      expectPanelSuccess(await response.json(), newRows)
+    }
+    expect(getPanelCacheStats().inFlight).toBe(0)
+    expectPanelSuccess(await (await GET(request('/api/panel?type=lider'))).json(), newRows, 'memory-cache')
+    expect(iolFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([0, 30_001])('cleans a failed shared refresh and preserves fallback at age %s', async (age) => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-04T16:00:00.000Z'))
+    let rejectRefresh!: (error: Error) => void
+    const rows = [{ simbolo: 'ALUA', descripcion: 'Aluar' }]
+    const iolFetch = vi.fn().mockResolvedValueOnce(rows).mockImplementationOnce(() =>
+      new Promise((_resolve, reject) => { rejectRefresh = reject })
+    ).mockResolvedValueOnce(rows)
+    await loadLiveRoute(iolFetch)
+    const { getOrCreatePanelResponse, getPanelCacheStats } = await import('@/lib/server/panel/panelCache')
+    await getOrCreatePanelResponse('lider', false)
+    vi.advanceTimersByTime(age)
+    const first = getOrCreatePanelResponse('lider', true)
+    const second = getOrCreatePanelResponse('lider', true)
+    expect(second).toBe(first)
+    rejectRefresh(new Error('upstream unavailable'))
+    for (const response of await Promise.all([first, second])) {
+      expectPanelSuccess(response, rows, age === 0 ? 'memory-cache' : 'stale')
+    }
+    expect(getPanelCacheStats().inFlight).toBe(0)
+    await getOrCreatePanelResponse('lider', true)
+    expect(iolFetch).toHaveBeenCalledTimes(3)
+    expect(getPanelCacheStats().inFlight).toBe(0)
+  })
+
   it('joins a refresh to a pending normal upstream read', async () => {
     let resolvePanel!: (value: unknown) => void
     const iolFetch = vi.fn(

@@ -29,14 +29,14 @@ describe('README', () => {
 
   it('keeps setup, environment, scripts, testing, and architecture discoverable', () => {
     for (const heading of [
-      '## Arquitectura resumida',
+      '## Arquitectura',
       '## Ejecución local',
       '## Variables de entorno',
-      '## Scripts',
-      '## Testing y validación',
-      '## Estructura principal',
+      '### Comandos de validación',
+      '## Testing y calidad',
+      '## Qué construí',
       '## Limitaciones conocidas',
-      '## Autor y contacto',
+      '## Contacto',
     ]) {
       expect(readme).toContain(heading)
     }
@@ -46,14 +46,32 @@ describe('README', () => {
     expect(readme).toContain('MARKET_DATA_SOURCE')
   })
 
-  it('documents optional contact configuration without invented personal data', () => {
-    expect(readme).toContain('[Agregar LinkedIn]')
-    expect(readme).toContain('[Agregar correo profesional]')
-    expect(readme).toContain('src/app/about/page.tsx')
-    expect(readme).toContain('no se renderizan en la interfaz')
+  it('uses first-person ownership and omits unconfigured contact links', () => {
+    expect(readme).toContain('Diseñé e implementé')
+    expect(readme).toContain('Elegí mantener')
+    expect(readme).not.toMatch(/\b(?:desarrolló|diseñó|implementó|El autor|Fue construido por)\b/u)
+    expect(readme).not.toMatch(/\[Agregar[^\]]*\]/i)
+    expect(runbook).toContain('src/app/about/page.tsx')
+    expect(runbook).toContain('Both are currently `null`')
     expect(readme).not.toMatch(/example@example\.com/i)
     expect(readme).not.toMatch(/mailto:/i)
     expect(readme).not.toMatch(/linkedin\.com\/in\//i)
+  })
+
+  it('keeps relative documentation links and scripts valid', () => {
+    for (const match of readme.matchAll(/\]\((\.\/?[^)#]+)(?:#[^)]*)?\)/g)) {
+      expect(() => readFileSync(path.resolve(process.cwd(), match[1]))).not.toThrow()
+    }
+    const manifest = JSON.parse(readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'))
+    for (const match of readme.matchAll(/npm run ([\w:-]+)/g)) {
+      expect(manifest.scripts).toHaveProperty(match[1])
+    }
+    for (const name of ['next', 'react', 'swr']) {
+      expect(readme).toContain(`\`${manifest.dependencies[name]}\``)
+    }
+    for (const name of ['typescript', 'tailwindcss', 'vitest', '@playwright/test', 'eslint']) {
+      expect(readme).toContain(`\`${manifest.devDependencies[name]}\``)
+    }
   })
 
   it('documents verified technical decisions without fixed test-count claims', () => {
@@ -118,7 +136,6 @@ describe('README', () => {
       'favorites-public',
       'quote-upstream',
     ]) {
-      expect(readme).toContain(`\`${namespace}\``)
       expect(runbook).toContain(`\`${namespace}\``)
     }
 
@@ -129,7 +146,7 @@ describe('README', () => {
   })
 
   it('records the dependency security verification procedure', () => {
-    expect(runbook).toContain('Next.js `16.3.0`')
+    expect(runbook).toContain('Next.js `16.3.4`')
     expect(runbook).toContain('does not override Next.js transitive dependencies')
     expect(runbook).toContain('npm explain postcss')
     expect(runbook).toContain('npm audit --omit=dev')
