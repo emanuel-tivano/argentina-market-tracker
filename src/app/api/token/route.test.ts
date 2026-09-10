@@ -47,6 +47,44 @@ async function loadRoute(
 }
 
 describe('/api/token debug route', () => {
+  it.each(['GET', 'POST'] as const)('handles %s with Next-style context and preserves safe headers', async (method) => {
+    const refresh = vi.fn(async () => ({ expiresIn: 1800, tokenType: 'Bearer', accessToken: 'private-oauth-value' }))
+    const route = await loadRoute({}, refresh)
+    const handler: (req: NextRequest, context: { params: Promise<Record<string, string>> }) => Promise<Response> = route[method]
+    const req = new NextRequest('http://localhost/api/token', {
+      method,
+      headers: { 'x-local-debug-token': DEBUG_TOKEN, 'x-request-id': 'token-request-123' },
+    })
+    const response = await handler(req, { params: Promise.resolve({}) })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('X-Request-Id')).toBe('token-request-123')
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(await response.json()).toEqual({ ok: true, expires_in: 1800, token_type: 'Bearer', cached: false, status: 'refreshed', message: 'Token fetched and cached' })
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
+  it('serves cached GET metadata without refreshing or exposing tokens', async () => {
+    const refresh = vi.fn()
+    const { GET } = await loadRoute({}, refresh)
+    const { getCachedToken } = await import('@/lib/server/upstream/tokenCache')
+    vi.mocked(getCachedToken).mockReturnValue('private-oauth-value')
+    const response = await GET(request('/api/token', DEBUG_TOKEN))
+    expect(await response.json()).toMatchObject({ cached: true, status: 'cached' })
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it.each([{ ENABLE_TOKEN_DEBUG: '0' }, { LOCAL_DEBUG_TOKEN: 'different-token' }])('denies GET before refresh when authorization fails: %s', async (env) => {
+    const refresh = vi.fn()
+    const { GET } = await loadRoute(env, refresh)
+    const response = await GET(request('/api/token', DEBUG_TOKEN))
+    const body = await response.json()
+    expect(response.status).toBe(404)
+    expect(body.requestId).toBe(response.headers.get('X-Request-Id'))
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
     vi.resetModules()

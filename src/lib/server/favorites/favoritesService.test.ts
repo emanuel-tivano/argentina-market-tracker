@@ -84,6 +84,62 @@ async function loadFavoritesService(
 }
 
 describe('favoritesService', () => {
+  const items = [{ market: 'bCBA' as const, symbol: 'GGAL' }]
+  const options = { bypassCache: false, rateLimitIdentity: TEST_IDENTITY }
+
+  it('caches confirmed 404s until the configured TTL, including manual refreshes', async () => {
+    const lookup = vi.fn()
+    const { getFavoritesResponse } = await loadFavoritesService(lookup, { STOCK_QUOTE_NOT_FOUND_TTL_MS: '1000' })
+    const { IolUpstreamHttpError } = await import('@/lib/server/upstream/iol')
+    lookup.mockRejectedValueOnce(new IolUpstreamHttpError('not found', 404, { statusText: 'Not Found', upstreamPath: '/quote' })).mockResolvedValueOnce(quoteResponse('GGAL'))
+    expect((await getFavoritesResponse(items, options)).missingItems).toEqual(['bCBA:GGAL'])
+    vi.advanceTimersByTime(999)
+    expect((await getFavoritesResponse(items, { ...options, bypassCache: true })).missingItems).toEqual(['bCBA:GGAL'])
+    expect(lookup).toHaveBeenCalledOnce()
+    vi.advanceTimersByTime(1)
+    expect((await getFavoritesResponse(items, options)).rows).toHaveLength(1)
+    expect((await getFavoritesResponse(items, options)).missingItems).toEqual([])
+    expect(lookup).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['500', '429', 'timeout', 'network', 'normalization', 'rate-limit', 'store-unavailable'])('does not negatively cache %s failures', async (kind) => {
+    const lookup = vi.fn()
+    const { getFavoritesResponse } = await loadFavoritesService(lookup)
+    const { IolUpstreamHttpError } = await import('@/lib/server/upstream/iol')
+    const { QuoteUpstreamBudgetError } = await import('@/lib/server/quote/protectedQuoteLookup')
+    const error = kind === '500' || kind === '429'
+      ? new IolUpstreamHttpError('failed', Number(kind), { statusText: 'Failed', upstreamPath: '/quote' })
+      : kind === 'rate-limit' || kind === 'store-unavailable'
+        ? new QuoteUpstreamBudgetError(kind === 'rate-limit' ? 'RATE_LIMITED' : 'RATE_LIMIT_UNAVAILABLE', kind === 'rate-limit' ? 429 : 503, {})
+        : new Error(kind)
+    if (kind === 'normalization') lookup.mockResolvedValueOnce(null)
+    else lookup.mockRejectedValueOnce(error)
+    lookup.mockResolvedValueOnce(quoteResponse('GGAL'))
+    await expect(getFavoritesResponse(items, options)).rejects.toThrow()
+    expect((await getFavoritesResponse(items, options)).rows).toHaveLength(1)
+    expect(lookup).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves stale fallback during negative TTL and resumes lookup after expiry', async () => {
+    const lookup = vi.fn().mockResolvedValueOnce(quoteResponse('GGAL'))
+    const { getFavoritesResponse } = await loadFavoritesService(lookup)
+    const { IolUpstreamHttpError } = await import('@/lib/server/upstream/iol')
+    await getFavoritesResponse(items, options)
+    vi.advanceTimersByTime(15_001)
+    lookup.mockRejectedValueOnce(new IolUpstreamHttpError('not found', 404, { statusText: 'Not Found', upstreamPath: '/quote' }))
+    for (let count = 0; count < 2; count++) {
+      const response = await getFavoritesResponse(items, options)
+      expect(response.stale).toBe(true)
+      expect(response.rows).toHaveLength(1)
+      expect(response.missingItems).toEqual([])
+    }
+    expect(lookup).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(30_000)
+    lookup.mockResolvedValueOnce(quoteResponse('GGAL'))
+    expect((await getFavoritesResponse(items, options)).stale).toBe(false)
+    expect(lookup).toHaveBeenCalledTimes(3)
+  })
+
   beforeEach(() => {
     setRequiredEnv()
     vi.useFakeTimers()

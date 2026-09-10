@@ -1,3 +1,4 @@
+import { parseFinancialNumber as toFiniteNumber } from '@/lib/financialNumber'
 import { parseStockHistoryCalendarDate } from '@/lib/stockHistoryDate'
 
 export class StockHistoryNormalizationError extends Error {
@@ -215,66 +216,6 @@ function getFirstField(
   return undefined
 }
 
-function parseNumberString(value: string): number | null {
-  const trimmedValue = value.trim()
-
-  if (!trimmedValue) {
-    return null
-  }
-
-  const numericValue = trimmedValue.replace(/[^0-9,.-]/g, '')
-
-  if (!numericValue || numericValue === '-' || numericValue === '.') {
-    return null
-  }
-
-  const lastCommaIndex = numericValue.lastIndexOf(',')
-  const lastDotIndex = numericValue.lastIndexOf('.')
-  const singleSeparatorIndex = Math.max(lastCommaIndex, lastDotIndex)
-  const singleSeparator =
-    lastCommaIndex === -1 && lastDotIndex !== -1
-      ? '.'
-      : lastDotIndex === -1 && lastCommaIndex !== -1
-        ? ','
-        : null
-  const hasSingleThousandsSeparator =
-    singleSeparator !== null &&
-    numericValue.slice(singleSeparatorIndex + 1).length === 3 &&
-    /^\d{1,3}$/.test(numericValue.slice(0, singleSeparatorIndex))
-
-  if (hasSingleThousandsSeparator) {
-    const parsedValue = Number(numericValue.replace(singleSeparator, ''))
-
-    return Number.isFinite(parsedValue) ? parsedValue : null
-  }
-
-  const decimalSeparator =
-    lastCommaIndex > lastDotIndex
-      ? ','
-      : lastDotIndex > lastCommaIndex
-        ? '.'
-        : null
-  const normalizedValue =
-    decimalSeparator === ','
-      ? numericValue.replace(/\./g, '').replace(',', '.')
-      : numericValue.replace(/,/g, '')
-  const parsedValue = Number(normalizedValue)
-
-  return Number.isFinite(parsedValue) ? parsedValue : null
-}
-
-function toFiniteNumber(value: unknown): number | null {
-  if (isFiniteNumber(value)) {
-    return value
-  }
-
-  if (typeof value === 'string') {
-    return parseNumberString(value)
-  }
-
-  return null
-}
-
 function formatDateParts(year: string, month: string, day: string): string | null {
   const normalizedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
 
@@ -355,7 +296,12 @@ function setOptionalNumber(
     | 'lot',
   value: unknown
 ) {
-  const numberValue = toFiniteNumber(value)
+  const numberValue = toFiniteNumber(
+    value,
+    ['volume', 'openInterest', 'operationCount', 'minimumSheet', 'lot'].includes(field)
+      ? 'grouped'
+      : 'decimal'
+  )
 
   if (numberValue !== null) {
     point[field] = numberValue
@@ -399,7 +345,10 @@ function normalizeBid(value: unknown): StockHistoryPoint['bid'] {
   for (const [field, aliases] of Object.entries(fields) as Array<
     [keyof typeof fields, (typeof fields)[keyof typeof fields]]
   >) {
-    const numericValue = toFiniteNumber(getFirstField(candidate, aliases))
+    const numericValue = toFiniteNumber(
+      getFirstField(candidate, aliases),
+      field === 'buyQuantity' || field === 'sellQuantity' ? 'grouped' : 'decimal'
+    )
 
     if (numericValue !== null) {
       bid[field] = numericValue

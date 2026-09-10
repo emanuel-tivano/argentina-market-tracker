@@ -7,6 +7,29 @@ import {
 } from './stockHistory'
 
 describe('stock history normalization', () => {
+  it('applies decimal policies to OHLC and grouped policies only to quantities', () => {
+    expect(normalizeStockHistoryData([{
+      fecha: '2026-05-07', ultimoPrecio: '1.234', apertura: '0.123',
+      maximo: '1.234', minimo: '-0.123', cierreAnterior: '0.000',
+      variacion: '0.123', montoOperado: '1.234', precioPromedio: '1.234',
+      volumen: '1.234', cantidadOperaciones: '1,234', interesesAbiertos: '1.234',
+      laminaMinima: '1.234', lote: '1.234',
+      puntas: [{ cantidadCompra: '1.234', precioCompra: '0.123', precioVenta: '1.234', cantidadVenta: '1,234' }],
+    }])[0]).toMatchObject({
+      close: 1.234, open: 0.123, high: 1.234, low: -0.123, previousClose: 0,
+      dailyVariation: 0.123, amountTraded: 1.234, averagePrice: 1.234,
+      volume: 1234, operationCount: 1234, openInterest: 1234, minimumSheet: 1234, lot: 1234,
+      bid: { buyQuantity: 1234, buyPrice: 0.123, sellPrice: 1.234, sellQuantity: 1234 },
+    })
+  })
+
+  it.each(['abc123', '1e3', '12.34.56', '$ 123.45'])('discards malformed prices %s without stripping characters', (price) => {
+    expect(normalizeStockHistoryDataResult([
+      { fecha: '2026-05-07', ultimoPrecio: price },
+      { fecha: '2026-05-08', ultimoPrecio: '1,234.56' },
+    ])).toMatchObject({ data: [{ date: '2026-05-08', close: 1234.56 }], discardedPoints: 1 })
+  })
+
   it('normalizes known IOL-style field names into stable history points', () => {
     expect(
       normalizeStockHistoryData({

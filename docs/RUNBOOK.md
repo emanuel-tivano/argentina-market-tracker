@@ -77,6 +77,22 @@ Notes:
 
 ## Configuration Reference
 
+### Public URL and contact metadata
+
+`NEXT_PUBLIC_SITE_URL` takes precedence for canonical URLs, sitemap, robots and
+Open Graph. Without it, the app uses `VERCEL_PROJECT_PRODUCTION_URL`, then
+`VERCEL_URL`; outside production it finally falls back to `http://localhost:3000`.
+Production without a valid origin fails explicitly. Set the public HTTPS origin
+when deploying; see `src/lib/server/publicSiteUrl.ts` for validation.
+`APP_VERSION` is optional and is exposed by `/api/health`.
+
+The optional contact links on `/about` are configured by `LINKEDIN_URL` and
+`CONTACT_EMAIL` in `src/app/about/page.tsx`. Both are currently `null`, so those
+links are omitted from the UI. When real public contact details are configured,
+keep the README contact section in sync; do not publish placeholder values.
+
+### Cache and timeout policy
+
 All TTLs and timeouts below use milliseconds. Invalid, non-integer, or
 out-of-range values fall back to the documented default. For each fresh/stale
 pair, `fresh` must be lower than `stale`; otherwise both values fall back to
@@ -147,6 +163,23 @@ retries remain constrained by the same server-side window and repeated manual
 activation is coalesced while one request is pending.
 
 ## Data Contract Notes
+
+Numeric strings use a shared explicit policy: prices, percentages and monetary
+amounts interpret a single separator as decimal (`1.234` means `1.234`).
+Volume, counts and quantities admit three-digit grouping (`1.234` means `1234`).
+Mixed Argentine/international separators and repeated thousands groups remain
+supported; malformed strings are rejected without stripping arbitrary text.
+
+Favorites caches confirmed `Cotizacion` 404s separately from `CotizacionDetalle`,
+using `STOCK_QUOTE_NOT_FOUND_TTL_MS` and a maximum of 500 negative keys per process.
+Manual refresh does not bypass a negative TTL. Eligible snapshots still provide
+fallback during that TTL; successful quote writes invalidate the negative entry.
+Timeouts, rate limits, normalization errors and other HTTP failures never create
+negative entries.
+
+Normal panel reads return fresh snapshots immediately during manual refresh.
+Requests without a fresh snapshot and concurrent refreshes share the single
+upstream lookup for that panel; subsequent reads observe its completed snapshot.
 
 Panel and quote responses require the current freshness metadata in every
 successful response. `fresh` and `memory-cache` require `stale: false` and no
@@ -307,11 +340,17 @@ Operational notes:
 
 ## Dependency Security
 
-Next.js `16.3.0` declares corrected PostCSS and Sharp versions. The project
+Next.js `16.3.4` declares corrected PostCSS and Sharp versions. The project
 keeps PostCSS as a direct development dependency for the Tailwind pipeline and
 does not override Next.js transitive dependencies. After dependency changes,
 run `npm explain postcss`, `npm explain sharp`, and `npm audit --omit=dev` to
 verify the resolved production graph before deployment.
+
+The review hardening update also resolves `baseline-browser-mapping` to
+`2.11.21`, Browserslist to `4.28.9`, js-yaml to `4.3.2`, and the coupled Vitest /
+V8 coverage packages to `4.1.11` to address reported production and tooling
+advisories without dependency overrides. Run a full `npm audit` when changing
+the test or lint toolchain as well.
 
 The CI `quality` job runs `npm audit --omit=dev` after `npm ci` and fails on
 reported production vulnerabilities. The full development graph is managed

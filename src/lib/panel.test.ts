@@ -151,6 +151,24 @@ describe('normalizePanelData', () => {
     ])
   })
 
+  it('preserves three-decimal prices and percentages while grouping quantities', () => {
+    const payload = {
+      simbolo: 'ALUA', descripcion: 'Aluar', ultimoPrecio: '1.234',
+      variacionPorcentual: '0.123', apertura: '-1.234', maximo: '1.234',
+      minimo: '0.123', ultimoCierre: '0.000', montoOperado: '1.234',
+      volumen: '1.234', cantidadOperaciones: '1,234', laminaMinima: '1.234', lote: '1.234',
+      puntas: { cantidadCompra: '1.234', cantidadVenta: '1,234', precioCompra: '0.123', precioVenta: '1.234' },
+    }
+    const expected = {
+      ultimoPrecio: 1.234, variacionPorcentual: 0.123, apertura: -1.234,
+      maximo: 1.234, minimo: 0.123, ultimoCierre: 0, montoOperado: 1.234,
+      volumen: 1234, cantidadOperaciones: 1234, laminaMinima: 1234, lote: 1234,
+      puntas: { cantidadCompra: 1234, cantidadVenta: 1234, precioCompra: 0.123, precioVenta: 1.234 },
+    }
+    expect(normalizePanelData([payload])[0]).toMatchObject(expected)
+    expect(normalizeQuoteData(payload, { symbol: 'ALUA' })).toMatchObject(expected)
+  })
+
   it('accepts safe numeric strings and normalizes them to numbers', () => {
     expect(
       normalizePanelData([

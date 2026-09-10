@@ -8,12 +8,16 @@ import {
   getCachedQuote,
   getOrCreateInFlightQuoteRequest,
   getStaleQuote,
+  hasCachedQuoteNotFound,
   setCachedQuote,
+  setCachedQuoteNotFound,
 } from './quoteCache'
 import {
   clearStockQuoteCacheForTests,
   getCachedStockQuoteResponse,
   getStaleStockQuoteResponse,
+  hasCachedStockQuoteNotFound,
+  setCachedStockQuoteNotFound,
   setCachedStockQuoteResponse,
 } from '@/lib/server/quote/quoteCache'
 
@@ -58,6 +62,30 @@ function detailQuote(symbol = 'GGAL'): StockQuoteDetail {
 }
 
 describe('favorites quote cache policy', () => {
+  it('isolates negative resources, expires entries and invalidates them on success', () => {
+    process.env.STOCK_QUOTE_NOT_FOUND_TTL_MS = '1000'
+    setCachedQuoteNotFound('bCBA', 'GGAL')
+    expect(hasCachedQuoteNotFound('bCBA', 'GGAL')).toBe(true)
+    expect(hasCachedStockQuoteNotFound('bCBA', 'GGAL')).toBe(false)
+    setCachedStockQuoteNotFound('bCBA', 'ALUA')
+    expect(hasCachedQuoteNotFound('bCBA', 'ALUA')).toBe(false)
+    setCachedQuote('bCBA', 'GGAL', favoriteQuote())
+    expect(hasCachedQuoteNotFound('bCBA', 'GGAL')).toBe(false)
+    setCachedQuoteNotFound('bCBA', 'GGAL')
+    vi.advanceTimersByTime(999)
+    expect(hasCachedQuoteNotFound('bCBA', 'GGAL')).toBe(true)
+    vi.advanceTimersByTime(1)
+    expect(hasCachedQuoteNotFound('bCBA', 'GGAL')).toBe(false)
+  })
+
+  it('bounds and clears negative entries independently of positive snapshots', () => {
+    for (let index = 0; index <= 500; index++) setCachedQuoteNotFound('bCBA', `TEST${index}`)
+    expect(hasCachedQuoteNotFound('bCBA', 'TEST0')).toBe(false)
+    expect(hasCachedQuoteNotFound('bCBA', 'TEST500')).toBe(true)
+    clearQuoteCacheForTests()
+    expect(hasCachedQuoteNotFound('bCBA', 'TEST500')).toBe(false)
+  })
+
   beforeEach(() => {
     process.env = { ...OLD_ENV, NODE_ENV: 'test' }
     vi.useFakeTimers()
