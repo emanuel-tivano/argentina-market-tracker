@@ -28,6 +28,8 @@ function historySuccessResponse(options: {
     market: 'bCBA',
     symbol: 'GGAL',
     meta: {
+      invalidPoints: 0,
+      duplicatePoints: 0,
       discardedPoints: 0,
       source: options.source,
       stale: cacheStatus === 'stale',
@@ -76,6 +78,24 @@ describe('getStockHistoryFetchError', () => {
 })
 
 describe('fetchStockHistory', () => {
+  it.each([
+    { invalidPoints: -1 }, { duplicatePoints: -1 },
+    { invalidPoints: 0.5 }, { duplicatePoints: '1' },
+    { invalidPoints: undefined }, { duplicatePoints: undefined },
+    { duplicatePoints: 1, discardedPoints: 0 },
+  ])('rejects invalid normalization metadata %j', async (meta) => {
+    const response = historySuccessResponse({ source: 'demo' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ ...response, meta: { ...response.meta, ...meta } }, 200)))
+    await expect(fetchStockHistory('/api/stocks/GGAL/history?range=1M&market=bCBA')).rejects.toThrow()
+  })
+
+  it('preserves the separate counters from the BFF', async () => {
+    const response = historySuccessResponse({ source: 'live', resolvedVariant: 'ajustada' })
+    response.meta = { ...response.meta, invalidPoints: 2, duplicatePoints: 4, discardedPoints: 6 }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(response, 200)))
+    expect((await fetchStockHistory('/api/stocks/GGAL/history?range=1M&market=bCBA')).meta).toEqual(response.meta)
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
   })
@@ -163,6 +183,8 @@ describe('fetchStockHistory', () => {
           market: 'bCBA',
           symbol: 'GGAL',
           meta: {
+            invalidPoints: 0,
+            duplicatePoints: 0,
             discardedPoints: 0,
             resolvedVariant: 'ajustada',
             source: 'live',
@@ -207,6 +229,8 @@ describe('fetchStockHistory', () => {
           market: 'bCBA',
           symbol: 'GGAL',
           meta: {
+            invalidPoints: 0,
+            duplicatePoints: 0,
             discardedPoints: 0,
             resolvedVariant: 'ajustada',
             source: 'live',
@@ -233,6 +257,8 @@ describe('fetchStockHistory', () => {
       market: 'bCBA',
       symbol: 'GGAL',
       meta: {
+        invalidPoints: 0,
+        duplicatePoints: 0,
         discardedPoints: 0,
         resolvedVariant: 'sinAjustar',
         source: 'live',
@@ -266,6 +292,8 @@ describe('fetchStockHistory', () => {
           market: 'bCBA',
           symbol: 'GGAL',
           meta: {
+            invalidPoints: 0,
+            duplicatePoints: 0,
             discardedPoints: 0,
             resolvedVariant: 'ajustada',
             source: 'live',

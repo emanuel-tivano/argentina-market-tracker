@@ -1,7 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { getDemoHistoryData } from './demoMarketData'
+import { getDemoHistoryData, getDemoPanelData } from './demoMarketData'
 
 describe('demoMarketData history clock', () => {
+  it.each([['3Y', 1095], ['5Y', 1825]] as const)(
+    'generates deterministic positive business-day data spanning %s', (range, days) => {
+      const now = new Date('2026-05-07T18:00:00Z')
+      for (const panel of ['lider', 'general', 'cedears'] as const) {
+        for (const { simbolo } of getDemoPanelData(panel)) {
+          const points = getDemoHistoryData(simbolo, 'bCBA', range, now)
+          expect(points).toEqual(getDemoHistoryData(simbolo, 'bCBA', range, now))
+          const span = (Date.parse(points.at(-1)!.date) - Date.parse(points[0].date)) / 86400000
+          expect(span).toBeGreaterThanOrEqual(days - 2)
+          expect(span).toBeLessThanOrEqual(days)
+          expect(points.length).toBeGreaterThan(days * 0.7)
+          expect(points.length).toBeLessThan(days * 0.72)
+          expect(points.every((point, index) =>
+            point.close > 0 && point.open! > 0 && point.low! > 0 &&
+            point.high! >= point.close && point.low! <= point.close &&
+            ![0, 6].includes(new Date(point.date).getUTCDay()) &&
+            (index === 0 || point.date > points[index - 1].date)
+          )).toBe(true)
+        }
+      }
+    }
+  )
+
   function withoutTemporalFields(points: ReturnType<typeof getDemoHistoryData>) {
     return points.map((point) =>
       Object.fromEntries(

@@ -179,7 +179,7 @@ La fuente se selecciona con `MARKET_DATA_SOURCE`. La interfaz identifica el modo
 | `GET /api/panel?type=lider` | Panel líder; también admite `general` y `cedears`. |
 | `GET /api/favorites?items=bCBA:ALUA,bCBA:AAPL` | Cotizaciones de favoritos. |
 | `GET /api/stocks/[symbol]/quote?market=bCBA` | Cotización detallada. |
-| `GET /api/stocks/[symbol]/history?range=1M&market=bCBA` | Histórico por activo y rango. |
+| `GET /api/stocks/[symbol]/history?range=1M&market=bCBA` | Histórico por activo y rango: `1W`, `1M`, `3M`, `6M`, `1Y`, `3Y`, `5Y`. |
 | `GET /api/health/live` · `GET /api/health/ready` | Liveness y readiness. |
 
 [ESTRUCTURA_PROYECTO.md](./ESTRUCTURA_PROYECTO.md) ubica los handlers. El [runbook](./docs/RUNBOOK.md) explica el diagnóstico compatible `/api/health`, métricas, debug, budgets internos, respuestas 429/503 y recuperación ante fallos.

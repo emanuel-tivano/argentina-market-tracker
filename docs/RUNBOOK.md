@@ -293,7 +293,10 @@ Check:
 2. `GET /api/health` for compatibility diagnostics
 3. `GET /api/debug/metrics` and inspect:
    - `history.cache.event.total`
-   - `history.discarded_points.total`
+   - `history.invalid_points.total` (filas inválidas)
+   - `history.duplicate_points.total` (filas válidas consolidadas por fecha)
+   - `history.discarded_points.total` (agregado compatible: inválidas + duplicadas)
+   - Diagnóstico y política diaria: [Normalización del histórico](HISTORY_NORMALIZATION.md).
    - `history.stale_fallback.total`
    - `history.variant.selected.total`
    - `upstream.request.total`

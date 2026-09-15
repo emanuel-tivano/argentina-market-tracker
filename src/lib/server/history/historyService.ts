@@ -17,6 +17,7 @@ import {
   normalizeStockHistoryDataResult,
   StockHistoryNormalizationError,
   type StockHistoryMarket,
+  type StockHistoryNormalizationCounts,
   type StockHistoryRange,
   type StockHistoryResponseMeta,
   type StockHistorySuccessResponse,
@@ -36,6 +37,8 @@ const RANGE_DAYS: Record<StockHistoryRange, number> = {
   '3M': 93,
   '6M': 186,
   '1Y': 365,
+  '3Y': 1095,
+  '5Y': 1825,
 }
 
 function getHistoryEndpoint(
@@ -67,11 +70,9 @@ async function fetchAndNormalizeHistoryVariant(
   range: StockHistoryRange,
   variant: StockHistoryVariant,
   requestId?: string
-): Promise<{
-  discardedPoints: number
+): Promise<StockHistoryNormalizationCounts & {
   endpoint: string
   normalizedData: StockHistorySuccessResponse['data']
-  totalPoints: number
   variant: StockHistoryVariant
 }> {
   const endpoint = getHistoryEndpoint(market, symbol, range, variant)
@@ -82,21 +83,27 @@ async function fetchAndNormalizeHistoryVariant(
   const normalized = normalizeStockHistoryDataResult(data)
 
   if (normalized.discardedPoints > 0) {
-    logServerWarn('history.normalize.partial', {
+    const logNormalization = normalized.invalidPoints > 0 ? logServerWarn : logServerInfo
+    logNormalization(normalized.invalidPoints > 0 ? 'history.normalize.partial' : 'history.normalize.consolidated', {
       requestId,
       symbol,
       market,
       range,
       variant,
       endpoint,
+      invalidPoints: normalized.invalidPoints,
+      duplicatePoints: normalized.duplicatePoints,
       discardedPoints: normalized.discardedPoints,
       totalPoints: normalized.totalPoints,
     })
-    incrementMetricCounter('history.discarded_points.total', normalized.discardedPoints, {
-      market,
-      range,
-      variant,
-    })
+    // The legacy aggregate remains invalid + duplicate for existing dashboards.
+    for (const [name, count] of [
+      ['history.invalid_points.total', normalized.invalidPoints],
+      ['history.duplicate_points.total', normalized.duplicatePoints],
+      ['history.discarded_points.total', normalized.discardedPoints],
+    ] as const) {
+      if (count > 0) incrementMetricCounter(name, count, { market, range, variant })
+    }
   }
 
   devLog('normalized', {
@@ -106,22 +113,24 @@ async function fetchAndNormalizeHistoryVariant(
     variant,
     endpoint,
     itemCount: normalized.data.length,
+    invalidPoints: normalized.invalidPoints,
+    duplicatePoints: normalized.duplicatePoints,
     discardedPoints: normalized.discardedPoints,
   })
 
   return {
     endpoint,
     normalizedData: normalized.data,
+    invalidPoints: normalized.invalidPoints,
+    duplicatePoints: normalized.duplicatePoints,
     discardedPoints: normalized.discardedPoints,
     totalPoints: normalized.totalPoints,
     variant,
   }
 }
 
-type HistoryMetaOptions = {
-  discardedPoints: number
+type HistoryMetaOptions = StockHistoryNormalizationCounts & {
   stale: boolean
-  totalPoints: number
 } & (
   | { source: 'demo'; resolvedVariant?: never }
   | { source: 'live'; resolvedVariant: StockHistoryVariant }
@@ -130,6 +139,8 @@ type HistoryMetaOptions = {
 function buildHistoryMeta(options: HistoryMetaOptions): StockHistoryResponseMeta {
   if (options.source === 'live') {
     return {
+      invalidPoints: options.invalidPoints,
+      duplicatePoints: options.duplicatePoints,
       discardedPoints: options.discardedPoints,
       resolvedVariant: options.resolvedVariant,
       source: 'live',
@@ -139,6 +150,8 @@ function buildHistoryMeta(options: HistoryMetaOptions): StockHistoryResponseMeta
   }
 
   return {
+    invalidPoints: options.invalidPoints,
+    duplicatePoints: options.duplicatePoints,
     discardedPoints: options.discardedPoints,
     source: 'demo',
     stale: options.stale,
@@ -163,6 +176,8 @@ async function fetchHistoryResponse(
       fetchedAt,
       'fresh',
       buildHistoryMeta({
+        invalidPoints: 0,
+        duplicatePoints: 0,
         discardedPoints: 0,
         source: 'demo',
         stale: false,
@@ -214,6 +229,8 @@ async function fetchHistoryResponse(
       variant: result.variant,
       endpoint: result.endpoint,
       itemCount: result.normalizedData.length,
+      invalidPoints: result.invalidPoints,
+      duplicatePoints: result.duplicatePoints,
       discardedPoints: result.discardedPoints,
     })
 
@@ -225,6 +242,8 @@ async function fetchHistoryResponse(
       fetchedAt,
       'fresh',
       buildHistoryMeta({
+        invalidPoints: result.invalidPoints,
+        duplicatePoints: result.duplicatePoints,
         discardedPoints: result.discardedPoints,
         resolvedVariant: result.variant,
         source: 'live',

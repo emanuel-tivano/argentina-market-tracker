@@ -1668,6 +1668,11 @@ dialog.stock-details-dialog .stock-details-close {
   font-weight: 800;
 }
 
+.stock-details-content .stock-history-subtitle-info {
+  color: var(--muted-text);
+  font-weight: 500;
+}
+
 .stock-details-content .stock-history-performance {
   font-size: inherit;
   font-weight: 900;

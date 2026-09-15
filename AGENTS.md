@@ -190,7 +190,7 @@ Rutas internas actuales:
 
 - `/api/panel?type=lider|general|cedears`
 - `/api/favorites?items=bCBA:ALUA,bCBA:AAPL`
-- `/api/stocks/[symbol]/history?range=1W|1M|3M|6M|1Y&market=bCBA`
+- `/api/stocks/[symbol]/history?range=1W|1M|3M|6M|1Y|3Y|5Y&market=bCBA`
 - `/api/health`
 - `/api/health/live`
 - `/api/health/ready`

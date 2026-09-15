@@ -8,7 +8,7 @@ export class StockHistoryNormalizationError extends Error {
   }
 }
 
-export const STOCK_HISTORY_RANGES = ['1W', '1M', '3M', '6M', '1Y'] as const
+export const STOCK_HISTORY_RANGES = ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y'] as const
 
 export type StockHistoryRange = (typeof STOCK_HISTORY_RANGES)[number]
 export const DEFAULT_STOCK_HISTORY_RANGE: StockHistoryRange = '1M'
@@ -69,11 +69,18 @@ export interface StockHistorySuccessResponse {
   meta: StockHistoryResponseMeta
 }
 
-type StockHistoryResponseMetaBase = {
+export interface StockHistoryNormalizationCounts {
+  invalidPoints: number
+  duplicatePoints: number
+  /** Compatibility aggregate: invalidPoints + duplicatePoints, not invalid rows. */
   discardedPoints: number
+  /** Final unique daily points. Raw rows = totalPoints + discardedPoints. */
+  totalPoints: number
+}
+
+type StockHistoryResponseMetaBase = StockHistoryNormalizationCounts & {
   requestId?: string
   stale: boolean
-  totalPoints: number
 }
 
 export type StockHistoryResponseMeta = StockHistoryResponseMetaBase &
@@ -441,10 +448,37 @@ function normalizeHistoryPoint(value: unknown): StockHistoryPoint | null {
   return point
 }
 
-export interface StockHistoryNormalizationResult {
+export interface StockHistoryNormalizationResult extends StockHistoryNormalizationCounts {
   data: StockHistoryPoint[]
-  discardedPoints: number
-  totalPoints: number
+}
+
+function historySnapshotTime(point: StockHistoryPoint) {
+  const timestamp = point.timestamp
+  // Never compare a date-only value, an invalid time, or different date identities.
+  if (!timestamp || timestamp.slice(0, 10) !== point.date ||
+    !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?$/.test(timestamp)) return null
+  const zoned = /(?:Z|[+-]\d{2}:\d{2})$/.test(timestamp)
+  // Unzoned provider times share a local clock; append Z only to compare them
+  // without depending on the server timezone. Do not mix them with zoned times.
+  const time = Date.parse(zoned ? timestamp : `${timestamp}Z`)
+  return Number.isFinite(time) ? { time, zoned } : null
+}
+
+function selectDailyHistoryPoint(points: StockHistoryPoint[]): StockHistoryPoint {
+  const fallback = points[points.length - 1]
+  if (points.length === 1) return fallback
+  const times = points.map(historySnapshotTime)
+  const first = points[0]
+  if (times.some(time => time === null || time.zoned !== times[0]?.zoned) ||
+    points.some(point => point.settlement !== first.settlement || point.currency !== first.currency)) {
+    // Unknown chronology or distinct series: keep legacy behavior, without
+    // inventing a settlement preference. See docs/HISTORY_NORMALIZATION.md.
+    return fallback
+  }
+  const latestTime = times.reduce((latest, time) => Math.max(latest, time!.time), -Infinity)
+  const latest = points.filter((_, index) => times[index]!.time === latestTime)
+  // A timestamp tie has no proven winner; retain the legacy last-row policy.
+  return latest[latest.length - 1]
 }
 
 export function normalizeStockHistoryDataResult(
@@ -468,21 +502,23 @@ export function normalizeStockHistoryDataResult(
     )
   }
 
-  const pointsByDate = new Map<string, StockHistoryPoint>()
+  const pointsByDate = new Map<string, StockHistoryPoint[]>()
 
   for (const point of validItems) {
-    // The provider can repeat a calendar date. Preserve the existing chart
-    // policy explicitly: the last valid row in payload order wins.
-    pointsByDate.set(point.date, point)
+    const points = pointsByDate.get(point.date) ?? []
+    points.push(point)
+    pointsByDate.set(point.date, points)
   }
 
-  const uniqueItems = [...pointsByDate.values()].sort((first, second) =>
+  const uniqueItems = [...pointsByDate.values()].map(selectDailyHistoryPoint).sort((first, second) =>
     first.date.localeCompare(second.date)
   )
   const duplicateItemsCount = validItems.length - uniqueItems.length
 
   return {
     data: uniqueItems,
+    invalidPoints: invalidItemsCount,
+    duplicatePoints: duplicateItemsCount,
     discardedPoints: invalidItemsCount + duplicateItemsCount,
     totalPoints: uniqueItems.length,
   }

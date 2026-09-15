@@ -62,9 +62,16 @@ function assertStockHistorySuccessResponse(
 
   if (
     !isJsonRecord(value.meta) ||
+    typeof value.meta.invalidPoints !== 'number' ||
+    !Number.isSafeInteger(value.meta.invalidPoints) ||
+    value.meta.invalidPoints < 0 ||
+    typeof value.meta.duplicatePoints !== 'number' ||
+    !Number.isSafeInteger(value.meta.duplicatePoints) ||
+    value.meta.duplicatePoints < 0 ||
     typeof value.meta.discardedPoints !== 'number' ||
     !Number.isInteger(value.meta.discardedPoints) ||
     value.meta.discardedPoints < 0 ||
+    value.meta.discardedPoints !== value.meta.invalidPoints + value.meta.duplicatePoints ||
     typeof value.meta.totalPoints !== 'number' ||
     !Number.isInteger(value.meta.totalPoints) ||
     value.meta.totalPoints !== historyData.length ||

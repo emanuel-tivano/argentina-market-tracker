@@ -42,6 +42,8 @@ const HISTORY_RANGE_LABEL: Record<StockHistoryRange, string> = {
   '3M': 'Últimos 3 meses',
   '6M': 'Últimos 6 meses',
   '1Y': 'Último año',
+  '3Y': 'Últimos 3 años',
+  '5Y': 'Últimos 5 años',
 }
 
 export function HistoryRangeControls({
@@ -109,6 +111,7 @@ export function HistorySectionHeader({
   periodVariation,
   periodVariationClass,
   metaMessage,
+  metaInformational = false,
   refreshMessage,
   controls,
 }: {
@@ -116,6 +119,7 @@ export function HistorySectionHeader({
   periodVariation: number | null
   periodVariationClass: string
   metaMessage: string | null
+  metaInformational?: boolean
   refreshMessage: string | null
   controls: ReactNode
 }) {
@@ -138,7 +142,7 @@ export function HistorySectionHeader({
           )}
         </p>
         {metaMessage && (
-          <p className="stock-history-subtitle stock-history-subtitle-meta">
+          <p className={`stock-history-subtitle stock-history-subtitle-meta${metaInformational ? ' stock-history-subtitle-info' : ''}`}>
             {metaMessage}
           </p>
         )}

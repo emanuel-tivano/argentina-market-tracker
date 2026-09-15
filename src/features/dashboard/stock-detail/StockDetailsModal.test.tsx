@@ -144,15 +144,16 @@ describe('StockDetailsModal', () => {
     )
   })
 
-  it('keeps the modal history request synchronized with the selected range', async () => {
+  it.each(['1Y', '3Y', '5Y'])('keeps the modal history request synchronized with %s', async (range) => {
     render(<ModalHarness />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Abrir' }))
-    await userEvent.click(screen.getByRole('button', { name: '1Y' }))
+    await userEvent.click(screen.getByRole('button', { name: range }))
+    expect(screen.getByRole('button', { name: range }).getAttribute('aria-pressed')).toBe('true')
 
     expect(historyMocks.useStockHistory).toHaveBeenLastCalledWith(
       'GGAL',
-      '1Y',
+      range,
       undefined,
       { enabled: true }
     )

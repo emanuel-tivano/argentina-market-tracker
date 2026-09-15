@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildStockHistoryApiPath,
+  STOCK_HISTORY_RANGES,
   isStockHistoryPoint,
   isStockHistoryRange,
   normalizeStockHistoryData,
@@ -7,6 +9,67 @@ import {
 } from './stockHistory'
 
 describe('stock history normalization', () => {
+  it('separates invalid rows from duplicate valid snapshots and chooses the latest time', () => {
+    const latest = { fechaHora: '2022-05-17T17:00:03.007', ultimoPrecio: 100, apertura: 98, maximo: 102, minimo: 97, volumenNominal: 800, montoOperado: 80000 }
+    const early = { ...latest, fechaHora: '2022-05-17T11:00:09.243', volumenNominal: 0, montoOperado: 0 }
+    const payload = [latest, { fecha: 'invalid', ultimoPrecio: 100 }, early]
+    const result = normalizeStockHistoryDataResult(payload)
+    expect(result).toMatchObject({ invalidPoints: 1, duplicatePoints: 1, discardedPoints: 2, totalPoints: 1 })
+    expect(result.data).toEqual(normalizeStockHistoryData([latest]))
+    expect(normalizeStockHistoryDataResult([...payload].reverse())).toEqual(result)
+    expect(normalizeStockHistoryDataResult([latest, early])).toMatchObject({ invalidPoints: 0, duplicatePoints: 1 })
+  })
+
+  it('compares explicitly zoned snapshot timestamps by instant rather than text', () => {
+    const later = { fechaHora: '2026-05-07T15:00:00-03:00', ultimoPrecio: 105 }
+    const earlier = { fechaHora: '2026-05-07T17:00:00Z', ultimoPrecio: 100 }
+    expect(normalizeStockHistoryData([later, earlier])).toEqual(normalizeStockHistoryData([later]))
+  })
+
+  it.each([
+    [undefined, '2026-05-07T17:00:00'],
+    ['invalid', '2026-05-07T17:00:00'],
+    ['2026-05-07T25:00:00', '2026-05-07T17:00:00'],
+    ['2026-05-07T18:00:00Z', '2026-05-07T17:00:00'],
+    ['2026-05-08T18:00:00', '2026-05-07T17:00:00'],
+    ['2026-05-07T17:00:00', '2026-05-07T17:00:00'],
+  ])('preserves the last valid row when chronology is ambiguous (%s, %s)', (first, last) => {
+    const points = [
+      { date: '2026-05-07', timestamp: first, close: 101 },
+      { date: '2026-05-07', timestamp: last, close: 102 },
+    ]
+    expect(normalizeStockHistoryDataResult(points)).toMatchObject({
+      data: [expect.objectContaining({ close: 102 })], invalidPoints: 0, duplicatePoints: 1,
+    })
+  })
+
+  it('preserves all available sessions in a long series with many intraday snapshots', () => {
+    // Synthetic shape matching the diagnosed issue, never a captured live payload.
+    const daily = Array.from({ length: 1250 }, (_, index) => {
+      const day = new Date(Date.UTC(2021, 0, index + 1))
+      return { fechaHora: `${day.toISOString().slice(0, 10)}T17:00:00`, ultimoPrecio: 100, apertura: 99, maximo: 102, minimo: 98 }
+    }).filter(row => ![0, 6].includes(new Date(row.fechaHora + 'Z').getUTCDay()))
+    const snapshots = Array.from({ length: 1374 }, (_, index) => ({
+      ...daily[0], fechaHora: `${daily[0].fechaHora.slice(0, 10)}T11:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}`,
+    }))
+    const payload = [...daily, ...snapshots, { fecha: '2026-02-30', ultimoPrecio: 100 }]
+    const result = normalizeStockHistoryDataResult(payload)
+    expect(result).toMatchObject({ invalidPoints: 1, duplicatePoints: snapshots.length, totalPoints: daily.length })
+    expect(result.data).toEqual(normalizeStockHistoryData(daily))
+    expect(result).toEqual(normalizeStockHistoryDataResult([...payload].reverse()))
+    expect(result.data.every((point, index) => isStockHistoryPoint(point) &&
+      point.low! <= Math.min(point.open!, point.close) && point.high! >= Math.max(point.open!, point.close) &&
+      (index === 0 || result.data[index - 1].date < point.date))).toBe(true)
+    expect(new Set(result.data.map(point => point.date)).size).toBe(daily.length)
+  })
+
+  it.each(STOCK_HISTORY_RANGES)('accepts and builds the API path for %s', (range) => {
+    expect(isStockHistoryRange(range)).toBe(true)
+    expect(buildStockHistoryApiPath('ALUA', range, 'bCBA')).toBe(
+      `/api/stocks/ALUA/history?range=${range}&market=bCBA`
+    )
+  })
+
   it('applies decimal policies to OHLC and grouped policies only to quantities', () => {
     expect(normalizeStockHistoryData([{
       fecha: '2026-05-07', ultimoPrecio: '1.234', apertura: '0.123',
@@ -218,6 +281,8 @@ describe('stock history normalization', () => {
       ])
     ).toEqual({
       data: [{ date: '2026-05-07', close: 101 }],
+      invalidPoints: 1,
+      duplicatePoints: 0,
       discardedPoints: 1,
       totalPoints: 1,
     })
@@ -239,6 +304,8 @@ describe('stock history normalization', () => {
         { date: '2026-01-01', close: 102 },
         { date: '2026-12-31', close: 103 },
       ],
+      invalidPoints: 3,
+      duplicatePoints: 0,
       discardedPoints: 3,
       totalPoints: 3,
     })
@@ -260,6 +327,8 @@ describe('stock history normalization', () => {
         { date: '2026-05-07', close: 102 },
         { date: '2026-05-08', close: 110, volume: 3000 },
       ],
+      invalidPoints: 0,
+      duplicatePoints: 3,
       discardedPoints: 3,
       totalPoints: 3,
     })
@@ -277,6 +346,8 @@ describe('stock history normalization', () => {
       ])
     ).toEqual({
       data: [{ date: '2026-05-07', close: 101 }],
+      invalidPoints: 1,
+      duplicatePoints: 0,
       discardedPoints: 1,
       totalPoints: 1,
     })
@@ -293,6 +364,8 @@ describe('stock history normalization', () => {
         { date: '2026-05-07', close: 101, open: 100 },
         { date: '2026-05-08', close: 108, volume: 2000 },
       ],
+      invalidPoints: 0,
+      duplicatePoints: 0,
       discardedPoints: 0,
       totalPoints: 2,
     })

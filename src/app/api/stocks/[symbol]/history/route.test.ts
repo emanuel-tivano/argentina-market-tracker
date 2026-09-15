@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { STOCK_HISTORY_RANGES } from '@/lib/stockHistory'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   IolUpstreamNetworkError,
@@ -115,6 +116,32 @@ async function clearHistoryTestState() {
 }
 
 describe('/api/stocks/[symbol]/history route', () => {
+  describe.each(['demo', 'live'])('%s ranges', (source) => {
+    it.each(STOCK_HISTORY_RANGES)('accepts %s', async (range) => {
+      const iolFetch = vi.fn().mockResolvedValue([{ fecha: '2026-05-07', ultimoPrecio: 101 }])
+      const { GET } = await loadRoute(iolFetch, 'test', { MARKET_DATA_SOURCE: source })
+      const response = await GET(
+        request(`/api/stocks/ALUA/history?range=${range}&market=bCBA`), context('ALUA')
+      )
+      const body = await response.json()
+      expect(response.status).toBe(200)
+      expect(body).toMatchObject({ ok: true, symbol: 'ALUA', range, meta: { source } })
+      expect(body.data.length).toBeGreaterThan(0)
+      if (source === 'demo') expect(iolFetch).not.toHaveBeenCalled()
+    })
+
+    it.each(['2Y', '10Y', '3y', 'invalid'])('rejects %s with INVALID_RANGE', async (range) => {
+      const iolFetch = vi.fn()
+      const { GET } = await loadRoute(iolFetch, 'test', { MARKET_DATA_SOURCE: source })
+      const response = await GET(
+        request(`/api/stocks/ALUA/history?range=${range}&market=bCBA`), context('ALUA')
+      )
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ ok: false, error: 'INVALID_RANGE' })
+      expect(iolFetch).not.toHaveBeenCalled()
+    })
+  })
+
   beforeEach(async () => {
     await clearHistoryTestState()
     vi.clearAllMocks()
@@ -171,6 +198,8 @@ describe('/api/stocks/[symbol]/history route', () => {
       market: 'bCBA',
       symbol: 'GGAL',
       meta: {
+        invalidPoints: 0,
+        duplicatePoints: 0,
         discardedPoints: 0,
         requestId: expect.any(String),
         resolvedVariant: 'ajustada',
@@ -343,6 +372,8 @@ describe('/api/stocks/[symbol]/history route', () => {
       ok: true,
       data: [{ date: '2026-05-07', close: 101 }],
       meta: {
+        invalidPoints: 1,
+        duplicatePoints: 0,
         discardedPoints: 1,
         resolvedVariant: 'ajustada',
         source: 'live',
@@ -355,6 +386,8 @@ describe('/api/stocks/[symbol]/history route', () => {
       expect.objectContaining({
         level: 'warn',
         symbol: 'GGAL',
+        invalidPoints: 1,
+        duplicatePoints: 0,
         discardedPoints: 1,
         totalPoints: 1,
       })
@@ -383,6 +416,8 @@ describe('/api/stocks/[symbol]/history route', () => {
       { date: '2026-05-08', close: 110 },
     ])
     expect(body.meta).toMatchObject({
+      invalidPoints: 0,
+      duplicatePoints: 1,
       discardedPoints: 1,
       totalPoints: 2,
     })
@@ -850,6 +885,8 @@ describe('/api/stocks/[symbol]/history route', () => {
       range: '1M',
       symbol: 'GGAL',
       meta: {
+        invalidPoints: 0,
+        duplicatePoints: 0,
         discardedPoints: 0,
         source: 'demo',
         stale: false,

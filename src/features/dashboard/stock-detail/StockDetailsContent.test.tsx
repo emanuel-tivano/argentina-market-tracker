@@ -10,6 +10,7 @@ import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type StockData } from '@/features/dashboard/shared/stockData'
 import { type StockQuoteDetail } from '@/lib/stockQuote'
+import { type StockHistoryRange } from '@/lib/stockHistory'
 import StockDetailsContent from './StockDetailsContent'
 
 const chartMocks = vi.hoisted(() => ({
@@ -38,6 +39,8 @@ vi.mock('@/features/dashboard/stock-detail/useStockHistory', () => ({
       },
     ],
     meta: {
+      invalidPoints: 0,
+      duplicatePoints: 0,
       discardedPoints: 0,
       source: 'demo',
       stale: false,
@@ -138,6 +141,8 @@ const pageHistory = {
     },
   ],
   meta: {
+    invalidPoints: 0,
+    duplicatePoints: 0,
     discardedPoints: 0,
     source: 'demo' as const,
     stale: false,
@@ -180,7 +185,7 @@ const quoteDetail: StockQuoteDetail = {
 }
 
 function PageContentHarness() {
-  const [range, setRange] = useState<'1W' | '1M' | '3M' | '6M' | '1Y'>('1M')
+  const [range, setRange] = useState<StockHistoryRange>('1M')
 
   return (
     <StockDetailsContent
@@ -287,7 +292,14 @@ describe('StockDetailsContent variants', () => {
     ).not.toBeNull()
   })
 
-  it('distinguishes discarded upstream points from displayed points', () => {
+  it.each([
+    [3, 0, 8, 'Se descartaron 3 registros inválidos del upstream; se muestran 8 ruedas.'],
+    [0, 1374, 1220, 'Se consolidaron 1374 registros repetidos; se muestran 1220 ruedas.'],
+    [4, 1370, 1220, 'Se consolidaron 1370 registros repetidos y se descartaron 4 registros inválidos del upstream; se muestran 1220 ruedas.'],
+    [1, 0, 1, 'Se descartó 1 registro inválido del upstream; se muestra 1 rueda.'],
+    [0, 1, 1, 'Se consolidó 1 registro repetido; se muestra 1 rueda.'],
+    [1, 1, 1, 'Se consolidó 1 registro repetido y se descartó 1 registro inválido del upstream; se muestra 1 rueda.'],
+  ] as const)('distinguishes %i invalid and %i duplicate rows', (invalidPoints, duplicatePoints, totalPoints, message) => {
     render(
       <StockDetailsContent
         stock={stock}
@@ -298,20 +310,18 @@ describe('StockDetailsContent variants', () => {
           ...pageHistory,
           meta: {
             ...pageHistory.meta,
-            discardedPoints: 3,
-            totalPoints: 8,
+            invalidPoints,
+            duplicatePoints,
+            discardedPoints: invalidPoints + duplicatePoints,
+            totalPoints,
           },
         }}
       />
     )
 
-    expect(
-      screen.getByText(
-        'Se descartaron 3 puntos del upstream; se muestran 8.'
-      )
-    ).not.toBeNull()
+    const notice = screen.getByText(message)
+    expect(notice.classList.contains('stock-history-subtitle-info')).toBe(invalidPoints === 0)
     expect(screen.queryByText(/3 de 8/)).toBeNull()
-    expect(screen.queryByText(/puntos inválidos/i)).toBeNull()
     expect(screen.getByText('Último mes:')).not.toBeNull()
   })
 
@@ -319,6 +329,7 @@ describe('StockDetailsContent variants', () => {
     render(<PageContentHarness />)
 
     expect(screen.queryByText(/Se descartaron/)).toBeNull()
+    expect(screen.queryByText(/Se consolid/)).toBeNull()
     expect(
       screen.getByText('Serie histórica de demo determinística.')
     ).not.toBeNull()

@@ -56,6 +56,7 @@ function HistoryProbe({
         {history.viewStatus}:{history.points.length}:{history.error?.message ?? ''}
       </output>
       <span data-testid="history-close">{history.points[0]?.close ?? ''}</span>
+      <span data-testid="history-meta">{JSON.stringify(history.meta)}</span>
     </>
   )
 }
@@ -76,6 +77,8 @@ function historyResponse(
     market: identity.market ?? 'bCBA',
     symbol: identity.symbol ?? 'GGAL',
     meta: {
+      invalidPoints: 0,
+      duplicatePoints: 0,
       discardedPoints: 0,
       source: 'demo' as const,
       stale: false,
@@ -96,6 +99,14 @@ function deferred<T>() {
 }
 
 describe('useStockHistory', () => {
+  it('passes normalization metadata unchanged to consumers', async () => {
+    const response = historyResponse()
+    response.meta = { ...response.meta, invalidPoints: 1, duplicatePoints: 2, discardedPoints: 3 }
+    mocks.fetchStockHistory.mockResolvedValue(response)
+    renderWithSWR(<HistoryProbe symbol="GGAL" />)
+    await waitFor(() => expect(screen.getByTestId('history-meta').textContent).toBe(JSON.stringify(response.meta)))
+  })
+
   afterEach(() => {
     cleanup()
     mocks.fetchStockHistory.mockReset()

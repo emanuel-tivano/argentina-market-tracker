@@ -72,6 +72,8 @@ const RANGE_DAY_COUNT: Record<StockHistoryRange, number> = {
   '3M': 91,
   '6M': 182,
   '1Y': 365,
+  '3Y': 1095,
+  '5Y': 1825,
 }
 
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires'
@@ -167,9 +169,13 @@ function toIsoDate(date: Date): string {
 function getBusinessDates(range: StockHistoryRange, now: Date): Date[] {
   const targetCount = RANGE_DAY_COUNT[range]
   const cursor = getArgentinaCalendarDate(now)
+  // Extended ranges cover calendar days; preserve legacy point counts.
+  const start = new Date(cursor)
+  start.setUTCDate(start.getUTCDate() - targetCount)
+  const isExtendedRange = range === '3Y' || range === '5Y'
   const dates: Date[] = []
 
-  while (dates.length < targetCount) {
+  while (isExtendedRange ? cursor >= start : dates.length < targetCount) {
     const day = cursor.getUTCDay()
 
     if (day !== 0 && day !== 6) {
@@ -271,7 +277,9 @@ export function getDemoHistoryData(
     const wave =
       Math.sin((index + seed) / 3.2) * profile.trendAmplitude +
       Math.cos((index + seed) / 7.5) * (profile.trendAmplitude / 2)
-    const driftFactor = 1 + profile.dailyDrift * index
+    const driftFactor = range === '3Y' || range === '5Y'
+      ? (1 + profile.dailyDrift) ** index
+      : 1 + profile.dailyDrift * index
     const close = roundPrice(profile.close * driftFactor * (1 + wave))
     const previousClose = points[index - 1]?.close ?? roundPrice(close * 0.992)
     const open = roundPrice(previousClose * (1 + Math.sin(seed + index) * profile.openBias))

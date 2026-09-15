@@ -61,18 +61,27 @@ function getHistoryVariationClass(value: number | null): string {
     : 'stock-history-performance-negative'
 }
 
-function getDiscardedHistoryPointsMessage(
-  discardedPoints: number,
+function getHistoryNormalizationMessage(
+  invalidPoints: number,
+  duplicatePoints: number,
   totalPoints: number
 ): string {
-  const discardedCopy =
-    discardedPoints === 1
-      ? 'Se descartó 1 punto'
-      : `Se descartaron ${discardedPoints} puntos`
+  const parts: string[] = []
+  if (duplicatePoints > 0) {
+    parts.push(duplicatePoints === 1
+      ? 'se consolidó 1 registro repetido'
+      : `se consolidaron ${duplicatePoints} registros repetidos`)
+  }
+  if (invalidPoints > 0) {
+    parts.push(invalidPoints === 1
+      ? 'se descartó 1 registro inválido del upstream'
+      : `se descartaron ${invalidPoints} registros inválidos del upstream`)
+  }
+  const normalizationCopy = parts.join(' y ')
   const displayedCopy =
-    totalPoints === 1 ? 'se muestra 1' : `se muestran ${totalPoints}`
+    totalPoints === 1 ? 'se muestra 1 rueda' : `se muestran ${totalPoints} ruedas`
 
-  return `${discardedCopy} del upstream; ${displayedCopy}.`
+  return `${normalizationCopy.charAt(0).toUpperCase()}${normalizationCopy.slice(1)}; ${displayedCopy}.`
 }
 
 function HistorySection({
@@ -141,9 +150,10 @@ function HistorySection({
           : 'Mostrando histórico cacheado por una falla temporal del upstream.'
         : isUnadjustedHistory
           ? 'Se está mostrando histórico sin ajustar porque no había histórico ajustado disponible.'
-        : history.meta.discardedPoints > 0
-          ? getDiscardedHistoryPointsMessage(
-              history.meta.discardedPoints,
+        : history.meta.invalidPoints > 0 || history.meta.duplicatePoints > 0
+          ? getHistoryNormalizationMessage(
+              history.meta.invalidPoints,
+              history.meta.duplicatePoints,
               history.meta.totalPoints
             )
           : history.meta.source === 'demo'
@@ -174,6 +184,11 @@ function HistorySection({
           }
           periodVariationClass={periodVariationClass}
           metaMessage={historyMetaMessage}
+          metaInformational={
+            !history.meta?.stale &&
+            !isUnadjustedHistory &&
+            history.meta?.invalidPoints === 0
+          }
           refreshMessage={historyRefreshMessage}
           controls={variant === 'modal' ? rangeControls : null}
         />

@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
+import type { StockHistoryNormalizationCounts, StockHistoryRange } from '../src/lib/stockHistory'
 
 type PanelKey = 'lider' | 'general' | 'cedears'
 
@@ -91,7 +92,8 @@ function historySuccessResponse(
   symbol: string,
   range: string,
   data: MockHistoryPoint[],
-  cacheStatus = 'fresh'
+  cacheStatus = 'fresh',
+  counts: Pick<StockHistoryNormalizationCounts, 'invalidPoints' | 'duplicatePoints'> = { invalidPoints: 0, duplicatePoints: 0 }
 ) {
   return {
     ok: true,
@@ -103,7 +105,8 @@ function historySuccessResponse(
     market: 'bCBA',
     symbol,
     meta: {
-      discardedPoints: 0,
+      ...counts,
+      discardedPoints: counts.invalidPoints + counts.duplicatePoints,
       source: 'demo',
       stale: false,
       totalPoints: data.length,
@@ -168,9 +171,10 @@ async function mockHistoryApi(
   options: {
     requests?: HistoryRequest[]
     responsesByRange?: Partial<
-      Record<'1W' | '1M' | '3M' | '6M' | '1Y', MockHistoryPoint[]>
+      Record<StockHistoryRange, MockHistoryPoint[]>
     >
     errorRanges?: string[]
+    normalizationCounts?: Pick<StockHistoryNormalizationCounts, 'invalidPoints' | 'duplicatePoints'>
   } = {}
 ) {
   await page.route(/\/api\/stocks\/[^/]+\/history\?/, async (route) => {
@@ -204,7 +208,7 @@ async function mockHistoryApi(
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(
-        historySuccessResponse(symbol.toUpperCase(), range ?? '1M', data)
+        historySuccessResponse(symbol.toUpperCase(), range ?? '1M', data, 'fresh', options.normalizationCounts)
       ),
     })
   })
@@ -689,6 +693,49 @@ test.describe('dashboard', () => {
     await expect(mobileDepth).not.toContainText('...')
     expect(quoteRequests).toEqual([])
     expect(requests).toEqual([{ type: 'lider', refresh: null }])
+  })
+
+  test('shows consolidated history records as information instead of invalid upstream data', async ({ page }) => {
+    await mockQuoteApi(page)
+    await mockHistoryApi(page, {
+      normalizationCounts: { invalidPoints: 0, duplicatePoints: 1374 },
+      responsesByRange: { '1M': [{ date: '2026-05-07', close: 4200 }] },
+    })
+    await page.goto('/stocks/GGAL?market=bCBA')
+    const notice = page.getByText('Se consolidaron 1374 registros repetidos; se muestra 1 rueda.')
+    await expect(notice).toBeVisible()
+    await expect(notice).toHaveClass(/stock-history-subtitle-info/)
+    await expect(page.getByText(/Se descart/)).toHaveCount(0)
+    await expect(page.getByLabel('Gráfico avanzado de GGAL', { exact: true })).toBeVisible()
+  })
+
+  test('selects 3Y and 5Y history on the detail page without horizontal overflow', async ({ page }) => {
+    const requests: HistoryRequest[] = []
+    const diagnostics = attachBrowserDiagnostics(page)
+    await mockQuoteApi(page)
+    await mockHistoryApi(page, {
+      requests,
+      responsesByRange: {
+        '1M': [{ date: '2026-04-07', close: 4000 }, { date: '2026-05-07', close: 4200 }],
+        '3Y': [{ date: '2023-05-08', close: 2000 }, { date: '2026-05-07', close: 4200 }],
+        '5Y': [{ date: '2021-05-08', close: 1000 }, { date: '2026-05-07', close: 4200 }],
+      },
+    })
+    await page.goto('/stocks/GGAL?market=bCBA')
+    const controls = page.locator('.stock-history-range-group')
+    await expect(controls.getByRole('button')).toHaveText(['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y'])
+    for (const [range, variation] of [['3Y', '+110,00%'], ['5Y', '+320,00%']]) {
+      const button = controls.getByRole('button', { name: range, exact: true })
+      await button.click()
+      await expect(button).toHaveAttribute('aria-pressed', 'true')
+      await expect.poll(() => requests.some((request) =>
+        request.symbol === 'GGAL' && request.range === range && request.market === 'bCBA'
+      )).toBe(true)
+      await expect(page.getByText(variation, { exact: true }).first()).toBeVisible()
+      await expect(page.getByLabel('Gráfico avanzado de GGAL', { exact: true })).toBeVisible()
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    expectNoBrowserErrors(diagnostics)
   })
 
   test('loads stock history in the modal and changes range with the expected request', async ({
