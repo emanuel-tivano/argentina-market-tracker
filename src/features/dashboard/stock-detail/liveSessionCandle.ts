@@ -83,7 +83,6 @@ export function shouldUseLiveCandle(
   if (
     quoteSource !== 'live' ||
     quote.source !== 'detail' ||
-    !marketStatus.isOpen ||
     !marketStatus.sessionDate ||
     quote.price === null ||
     quote.price <= 0 ||
@@ -102,6 +101,7 @@ export function shouldUseLiveCandle(
   return (
     operationDate === marketStatus.sessionDate &&
     operationParts !== null &&
+    !['Sat', 'Sun'].includes(operationParts.weekday) &&
     operationParts.minuteOfDay >= MARKET_OPEN_MINUTE &&
     operationParts.minuteOfDay < MARKET_CLOSE_MINUTE
   )

@@ -161,6 +161,7 @@ export default function LightweightStockChart({
         secondsVisible: false,
         fixLeftEdge: true,
         fixRightEdge: true,
+        tickMarkMaxCharacterLength: 10,
         tickMarkFormatter: (time: Time) => formatDateLabel(time),
       },
       crosshair: {

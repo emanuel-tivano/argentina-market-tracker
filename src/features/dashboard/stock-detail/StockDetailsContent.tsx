@@ -12,6 +12,7 @@ import {
   type StockHistoryRange,
 } from '@/lib/stockHistory'
 import { useStockHistory } from '@/features/dashboard/stock-detail/useStockHistory'
+import { useStockQuote } from '@/features/dashboard/stock-detail/useStockQuote'
 import {
   calculatePeriodStats,
   normalizeHistoryPoints,
@@ -222,9 +223,10 @@ function StockDetailsModalContent({ stock }: { stock: StockData }) {
   const history = useStockHistory(stock.ticker, historyRange, undefined, {
     enabled: true,
   })
+  const quote = useStockQuote(stock.ticker)
   const currentQuote = useMemo(
-    () => resolveCurrentStockQuote(stock, history.points),
-    [history.points, stock]
+    () => resolveCurrentStockQuote(stock, history.points, quote.quote),
+    [history.points, quote.quote, stock]
   )
   const varClass = getVariationClass(stock.varType)
   const severityClass = getVariationSeverityClass(stock.var, stock.varType)
@@ -288,7 +290,8 @@ function StockDetailsModalContent({ stock }: { stock: StockData }) {
         historyRange={historyRange}
         onHistoryRangeChange={setHistoryRange}
         history={history}
-        quoteSource={history.meta?.source ?? null}
+        quoteDetail={quote.quote}
+        quoteSource={quote.source}
       />
       <StockDetailsMetricGrid
         rows={secondaryRows}

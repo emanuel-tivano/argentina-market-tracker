@@ -18,6 +18,14 @@ const chartMocks = vi.hoisted(() => ({
   simplePoints: vi.fn(),
 }))
 
+const quoteMocks = vi.hoisted(() => ({
+  useStockQuote: vi.fn(),
+}))
+
+vi.mock('@/features/dashboard/stock-detail/useStockQuote', () => ({
+  useStockQuote: quoteMocks.useStockQuote,
+}))
+
 vi.mock('@/features/dashboard/stock-detail/useStockHistory', () => ({
   useStockHistory: () => ({
     points: [
@@ -204,6 +212,11 @@ describe('StockDetailsContent variants', () => {
     vi.setSystemTime(new Date('2026-06-24T01:30:00.000Z'))
     chartMocks.advancedPoints.mockClear()
     chartMocks.simplePoints.mockClear()
+    quoteMocks.useStockQuote.mockReset()
+    quoteMocks.useStockQuote.mockReturnValue({
+      quote: null,
+      source: null,
+    })
   })
 
   afterEach(() => {
@@ -495,6 +508,26 @@ describe('StockDetailsContent variants', () => {
 
     expect(chartMocks.advancedPoints).toHaveBeenLastCalledWith([
       ...pageHistory.points,
+      expect.objectContaining({
+        date: '2026-06-24',
+        close: 7615,
+      }),
+    ])
+  })
+
+  it('adds today live quote to the modal chart after market close', () => {
+    vi.setSystemTime(new Date('2026-06-24T21:30:00.000Z'))
+    quoteMocks.useStockQuote.mockReturnValue({
+      quote: quoteDetail,
+      source: 'live',
+    })
+
+    render(<StockDetailsContent stock={stock} />)
+
+    expect(quoteMocks.useStockQuote).toHaveBeenCalledWith('GGAL')
+    expect(chartMocks.simplePoints).toHaveBeenLastCalledWith([
+      expect.objectContaining({ date: '2026-05-01', close: 100 }),
+      expect.objectContaining({ date: '2026-05-02', close: 110 }),
       expect.objectContaining({
         date: '2026-06-24',
         close: 7615,

@@ -122,6 +122,21 @@ describe('AdvancedStockDetailChart', () => {
     expect(chartMocks.fitContent).toHaveBeenCalled()
   })
 
+  it('allows full DD/MM/YYYY labels on the time axis', () => {
+    render(
+      <AdvancedStockDetailChart points={completeOhlcPoints} symbol="GGAL" />
+    )
+
+    expect(chartMocks.createChart).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        timeScale: expect.objectContaining({
+          tickMarkMaxCharacterLength: 10,
+        }),
+      })
+    )
+  })
+
   it('receives unique server-normalized dates without dropping chart points', () => {
     const normalized = normalizeStockHistoryDataResult([
       {
