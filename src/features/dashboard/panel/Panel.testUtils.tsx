@@ -32,6 +32,13 @@ vi.mock('@/features/dashboard/stock-detail/useStockHistory', () => ({
   }),
 }))
 
+vi.mock('@/features/dashboard/stock-detail/useStockQuote', () => ({
+  useStockQuote: () => ({
+    quote: null,
+    source: null,
+  }),
+}))
+
 export function setCurrentSearchParams(value: string) {
   navigationMock.searchParams = new URLSearchParams(value)
 }

@@ -504,6 +504,76 @@ describe('syncHistoryWithCurrentQuote', () => {
     ])
   })
 
+  it('creates the first historical point from a reliable current quote', () => {
+    const currentQuote = resolveCurrentStockQuote(
+      {
+        ...snapshot,
+        price: 994.5,
+        open: 991,
+        min: 990,
+        max: 1000,
+        quoteDate: '2026-06-24T20:00:00.000Z',
+      },
+      []
+    )
+
+    expect(syncHistoryWithCurrentQuote([], currentQuote)).toEqual({
+      points: [
+        expect.objectContaining({
+          date: '2026-06-24',
+          open: 991,
+          high: 1000,
+          low: 990,
+          close: 994.5,
+        }),
+      ],
+      syncedAt: '2026-06-24T20:00:00.000Z',
+      syncedQuote: true,
+    })
+  })
+
+  it('keeps history unchanged when there is no valid current quote', () => {
+    const history = [
+      { date: '2026-06-22', close: 970, volume: 100 },
+      { date: '2026-06-23', close: 980, volume: 200 },
+    ]
+    const unavailableQuote = resolveCurrentStockQuote(
+      { ...snapshot, price: null, var: null },
+      []
+    )
+
+    expect(syncHistoryWithCurrentQuote(history, unavailableQuote)).toEqual({
+      points: history,
+      syncedAt: null,
+      syncedQuote: false,
+    })
+  })
+
+  it('preserves unaffected history and chronological order when appending', () => {
+    const history = [
+      { date: '2026-06-23', close: 980, volume: 200 },
+      { date: '2026-06-22', close: 970, volume: 100 },
+    ]
+    const currentQuote = resolveCurrentStockQuote(
+      {
+        ...snapshot,
+        price: 994.5,
+        open: 991,
+        min: 990,
+        max: 1000,
+        quoteDate: '2026-06-24T20:00:00.000Z',
+      },
+      []
+    )
+    const result = syncHistoryWithCurrentQuote(history, currentQuote)
+
+    expect(result.points).toEqual([
+      { date: '2026-06-22', close: 970, volume: 100 },
+      { date: '2026-06-23', close: 980, volume: 200 },
+      expect.objectContaining({ date: '2026-06-24', close: 994.5 }),
+    ])
+  })
+
   it('deduplicates and sorts history before syncing', () => {
     const currentQuote = resolveCurrentStockQuote(
       {

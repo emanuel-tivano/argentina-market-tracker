@@ -291,7 +291,7 @@ function StockDetailsModalContent({ stock }: { stock: StockData }) {
         onHistoryRangeChange={setHistoryRange}
         history={history}
         quoteDetail={quote.quote}
-        quoteSource={quote.source}
+        quoteSource={quote.source ?? history.meta?.source ?? null}
       />
       <StockDetailsMetricGrid
         rows={secondaryRows}
