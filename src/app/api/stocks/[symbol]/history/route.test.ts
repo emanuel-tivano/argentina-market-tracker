@@ -209,7 +209,7 @@ describe('/api/stocks/[symbol]/history route', () => {
       },
     })
     expect(iolFetch).toHaveBeenCalledWith(
-      '/api/v2/bCBA/Titulos/GGAL/Cotizacion/seriehistorica/2026-04-06/2026-05-07/ajustada'
+      '/api/v2/bCBA/Titulos/GGAL/Cotizacion/seriehistorica/2026-03-24/2026-05-07/ajustada'
     )
     expect(iolFetch).toHaveBeenCalledTimes(1)
   })
@@ -230,7 +230,7 @@ describe('/api/stocks/[symbol]/history route', () => {
     expect(body.symbol).toBe('YPFD')
     expect(body.market).toBe('bCBA')
     expect(iolFetch).toHaveBeenCalledWith(
-      '/api/v2/bCBA/Titulos/YPFD/Cotizacion/seriehistorica/2026-04-06/2026-05-07/ajustada'
+      '/api/v2/bCBA/Titulos/YPFD/Cotizacion/seriehistorica/2026-03-24/2026-05-07/ajustada'
     )
     expect(iolFetch).toHaveBeenCalledTimes(1)
   })
@@ -259,7 +259,7 @@ describe('/api/stocks/[symbol]/history route', () => {
       symbol: 'AAPL',
     })
     expect(iolFetch).toHaveBeenCalledWith(
-      '/api/v2/bCBA/Titulos/AAPL/Cotizacion/seriehistorica/2026-04-06/2026-05-07/ajustada'
+      '/api/v2/bCBA/Titulos/AAPL/Cotizacion/seriehistorica/2026-03-24/2026-05-07/ajustada'
     )
     expect(iolFetch).toHaveBeenCalledTimes(1)
   })
@@ -292,11 +292,11 @@ describe('/api/stocks/[symbol]/history route', () => {
     })
     expect(iolFetch).toHaveBeenNthCalledWith(
       1,
-      '/api/v2/bCBA/Titulos/AAPL/Cotizacion/seriehistorica/2026-04-06/2026-05-07/ajustada'
+      '/api/v2/bCBA/Titulos/AAPL/Cotizacion/seriehistorica/2026-03-24/2026-05-07/ajustada'
     )
     expect(iolFetch).toHaveBeenNthCalledWith(
       2,
-      '/api/v2/bCBA/Titulos/AAPL/Cotizacion/seriehistorica/2026-04-06/2026-05-07/sinAjustar'
+      '/api/v2/bCBA/Titulos/AAPL/Cotizacion/seriehistorica/2026-03-24/2026-05-07/sinAjustar'
     )
   })
 
@@ -333,11 +333,11 @@ describe('/api/stocks/[symbol]/history route', () => {
     })
     expect(iolFetch).toHaveBeenNthCalledWith(
       1,
-      '/api/v2/bCBA/Titulos/MSFT/Cotizacion/seriehistorica/2026-04-06/2026-05-07/ajustada'
+      '/api/v2/bCBA/Titulos/MSFT/Cotizacion/seriehistorica/2026-03-24/2026-05-07/ajustada'
     )
     expect(iolFetch).toHaveBeenNthCalledWith(
       2,
-      '/api/v2/bCBA/Titulos/MSFT/Cotizacion/seriehistorica/2026-04-06/2026-05-07/sinAjustar'
+      '/api/v2/bCBA/Titulos/MSFT/Cotizacion/seriehistorica/2026-03-24/2026-05-07/sinAjustar'
     )
 
     const cachedResponse = await GET(
@@ -398,9 +398,9 @@ describe('/api/stocks/[symbol]/history route', () => {
 
   it('deduplicates dates before exposing history counts', async () => {
     const iolFetch = vi.fn().mockResolvedValue([
-      { fecha: '2026-05-08', ultimoPrecio: 108 },
+      { fechaHora: '2026-05-08T11:00:00', ultimoPrecio: 108 },
       { fecha: '2026-05-07', ultimoPrecio: 101 },
-      { fecha: '2026-05-08', ultimoPrecio: 110 },
+      { fechaHora: '2026-05-08T17:00:00', ultimoPrecio: 110 },
     ])
     const { GET } = await loadLiveRoute(iolFetch)
 
@@ -413,7 +413,11 @@ describe('/api/stocks/[symbol]/history route', () => {
     expect(response.status).toBe(200)
     expect(body.data).toEqual([
       { date: '2026-05-07', close: 101 },
-      { date: '2026-05-08', close: 110 },
+      {
+        date: '2026-05-08',
+        timestamp: '2026-05-08T17:00:00',
+        close: 110,
+      },
     ])
     expect(body.meta).toMatchObject({
       invalidPoints: 0,

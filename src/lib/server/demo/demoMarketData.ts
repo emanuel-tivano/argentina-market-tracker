@@ -8,6 +8,12 @@ import {
   type StockHistoryRange,
 } from '@/lib/stockHistory'
 import type { StockQuoteDetail } from '@/lib/stockQuote'
+import {
+  calculateDailyVariationPercentage,
+  getPerformanceTargetDate,
+  selectPerformanceWindow,
+  shiftCalendarDate,
+} from '@/lib/marketPerformance'
 
 type DemoSymbolProfile = {
   close: number
@@ -66,15 +72,7 @@ const DEMO_SYMBOL_PROFILES: Record<string, DemoSymbolProfile> = {
   KO: createSymbolProfile('Coca-Cola', 68420, 0.0002, 0.0021, 0.007, 42_330),
 }
 
-const RANGE_DAY_COUNT: Record<StockHistoryRange, number> = {
-  '1W': 7,
-  '1M': 30,
-  '3M': 91,
-  '6M': 182,
-  '1Y': 365,
-  '3Y': 1095,
-  '5Y': 1825,
-}
+const HISTORY_REFERENCE_BUFFER_DAYS = 14
 
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires'
 
@@ -96,7 +94,7 @@ function createPanelRow(
   simbolo: string,
   descripcion: string,
   ultimoPrecio: number,
-  variacionPorcentual: number,
+  _variacionPorcentual: number,
   cantidadCompra: number,
   precioCompra: number,
   precioVenta: number,
@@ -111,7 +109,8 @@ function createPanelRow(
     simbolo,
     descripcion,
     ultimoPrecio,
-    variacionPorcentual,
+    variacionPorcentual:
+      calculateDailyVariationPercentage(ultimoCierre, ultimoPrecio) ?? 0,
     puntas: {
       cantidadCompra,
       precioCompra,
@@ -167,15 +166,21 @@ function toIsoDate(date: Date): string {
 }
 
 function getBusinessDates(range: StockHistoryRange, now: Date): Date[] {
-  const targetCount = RANGE_DAY_COUNT[range]
   const cursor = getArgentinaCalendarDate(now)
-  // Extended ranges cover calendar days; preserve legacy point counts.
-  const start = new Date(cursor)
-  start.setUTCDate(start.getUTCDate() - targetCount)
-  const isExtendedRange = range === '3Y' || range === '5Y'
+  const endDate = toIsoDate(cursor)
+  const targetDate = getPerformanceTargetDate(endDate, range)
+  const bufferedStartDate = targetDate
+    ? shiftCalendarDate(targetDate, -HISTORY_REFERENCE_BUFFER_DAYS)
+    : null
+
+  if (!bufferedStartDate) {
+    return []
+  }
+
+  const start = new Date(`${bufferedStartDate}T00:00:00.000Z`)
   const dates: Date[] = []
 
-  while (isExtendedRange ? cursor >= start : dates.length < targetCount) {
+  while (cursor >= start) {
     const day = cursor.getUTCDay()
 
     if (day !== 0 && day !== 6) {
@@ -293,7 +298,7 @@ export function getDemoHistoryData(
       )
     )
     const dailyVariation =
-      previousClose === 0 ? 0 : ((close - previousClose) / previousClose) * 100
+      calculateDailyVariationPercentage(previousClose, close) ?? 0
     const averagePrice = roundPrice((open + high + low + close) / 4)
 
     points.push({
@@ -323,6 +328,8 @@ export function getDemoHistoryData(
     })
   }
 
-  return points
+  const selectedWindow = selectPerformanceWindow(points, range)
+
+  return selectedWindow.start ? selectedWindow.points : points
 }
 

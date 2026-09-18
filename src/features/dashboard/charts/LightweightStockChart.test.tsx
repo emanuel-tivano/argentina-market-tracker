@@ -135,9 +135,9 @@ describe('LightweightStockChart', () => {
 
   it('passes server-normalized unique dates directly to the chart library', () => {
     const normalized = normalizeStockHistoryDataResult([
-      { fecha: '2026-05-07', ultimoPrecio: 101 },
+      { fechaHora: '2026-05-07T11:00:00', ultimoPrecio: 101 },
       { fecha: '2026-05-06', ultimoPrecio: 99 },
-      { fecha: '2026-05-07', ultimoPrecio: 103 },
+      { fechaHora: '2026-05-07T17:00:00', ultimoPrecio: 103 },
     ])
 
     render(<LightweightStockChart symbol="GGAL" points={normalized.data} />)

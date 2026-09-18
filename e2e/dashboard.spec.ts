@@ -695,16 +695,15 @@ test.describe('dashboard', () => {
     expect(requests).toEqual([{ type: 'lider', refresh: null }])
   })
 
-  test('shows consolidated history records as information instead of invalid upstream data', async ({ page }) => {
+  test('keeps safely consolidated history diagnostics out of the public UI', async ({ page }) => {
     await mockQuoteApi(page)
     await mockHistoryApi(page, {
       normalizationCounts: { invalidPoints: 0, duplicatePoints: 1374 },
       responsesByRange: { '1M': [{ date: '2026-05-07', close: 4200 }] },
     })
     await page.goto('/stocks/GGAL?market=bCBA')
-    const notice = page.getByText('Se consolidaron 1374 registros repetidos; se muestra 1 rueda.')
-    await expect(notice).toBeVisible()
-    await expect(notice).toHaveClass(/stock-history-subtitle-info/)
+    await expect(page.getByText(/Se consolid/)).toHaveCount(0)
+    await expect(page.getByText(/1374/)).toHaveCount(0)
     await expect(page.getByText(/Se descart/)).toHaveCount(0)
     await expect(page.getByLabel('Gráfico avanzado de GGAL', { exact: true })).toBeVisible()
   })
@@ -717,8 +716,8 @@ test.describe('dashboard', () => {
       requests,
       responsesByRange: {
         '1M': [{ date: '2026-04-07', close: 4000 }, { date: '2026-05-07', close: 4200 }],
-        '3Y': [{ date: '2023-05-08', close: 2000 }, { date: '2026-05-07', close: 4200 }],
-        '5Y': [{ date: '2021-05-08', close: 1000 }, { date: '2026-05-07', close: 4200 }],
+        '3Y': [{ date: '2023-05-07', close: 2000 }, { date: '2026-05-07', close: 4200 }],
+        '5Y': [{ date: '2021-05-07', close: 1000 }, { date: '2026-05-07', close: 4200 }],
       },
     })
     await page.goto('/stocks/GGAL?market=bCBA')
@@ -755,12 +754,12 @@ test.describe('dashboard', () => {
       requests: historyRequests,
       responsesByRange: {
         '1M': [
-          { date: '2026-04-13', close: 3900 },
+          { date: '2026-04-01', close: 3900 },
           { date: '2026-04-21', close: 3960 },
           { date: '2026-05-01', close: 4165 },
         ],
         '1W': [
-          { date: '2026-05-01', close: 4100 },
+          { date: '2026-04-30', close: 4100 },
           { date: '2026-05-05', close: 4140 },
           { date: '2026-05-07', close: 4165 },
         ],

@@ -18,6 +18,7 @@ import {
   StockHistoryNormalizationError,
   type StockHistoryMarket,
   type StockHistoryNormalizationCounts,
+  type StockHistoryNormalizationResult,
   type StockHistoryRange,
   type StockHistoryResponseMeta,
   type StockHistorySuccessResponse,
@@ -30,15 +31,35 @@ import {
   logServerInfo,
   logServerWarn,
 } from '@/lib/server/core/observability'
+import {
+  getPerformanceTargetDate,
+  selectPerformanceWindow,
+  shiftCalendarDate,
+  toMarketCalendarDate,
+} from '@/lib/marketPerformance'
 
-const RANGE_DAYS: Record<StockHistoryRange, number> = {
-  '1W': 7,
-  '1M': 31,
-  '3M': 93,
-  '6M': 186,
-  '1Y': 365,
-  '3Y': 1095,
-  '5Y': 1825,
+const HISTORY_REFERENCE_BUFFER_DAYS = 14
+const HISTORY_DUPLICATE_ANOMALY_RATIO = 0.5
+
+function getHistoryRequestDates(
+  range: StockHistoryRange,
+  now = new Date()
+): { fechaDesde: string; fechaHasta: string } {
+  const fechaHasta = toMarketCalendarDate(now)
+
+  if (!fechaHasta) {
+    throw new StockHistoryNormalizationError('Invalid history request date')
+  }
+  const targetDate = getPerformanceTargetDate(fechaHasta, range)
+  const fechaDesde = targetDate
+    ? shiftCalendarDate(targetDate, -HISTORY_REFERENCE_BUFFER_DAYS)
+    : null
+
+  if (!fechaDesde) {
+    throw new StockHistoryNormalizationError('Invalid history request dates')
+  }
+
+  return { fechaDesde, fechaHasta }
 }
 
 function getHistoryEndpoint(
@@ -47,15 +68,11 @@ function getHistoryEndpoint(
   range: StockHistoryRange,
   variant: StockHistoryVariant
 ): string {
-  const now = new Date()
-  const fechaHasta = now.toISOString().slice(0, 10)
-  const fechaDesde = new Date(now)
-
-  fechaDesde.setUTCDate(fechaDesde.getUTCDate() - RANGE_DAYS[range])
+  const { fechaDesde, fechaHasta } = getHistoryRequestDates(range)
 
   return `/api/v2/${encodeURIComponent(market)}/Titulos/${encodeURIComponent(
     symbol
-  )}/Cotizacion/seriehistorica/${fechaDesde.toISOString().slice(0, 10)}/${fechaHasta}/${variant}`
+  )}/Cotizacion/seriehistorica/${fechaDesde}/${fechaHasta}/${variant}`
 }
 
 function devLog(...args: unknown[]) {
@@ -69,10 +86,13 @@ async function fetchAndNormalizeHistoryVariant(
   market: StockHistoryMarket,
   range: StockHistoryRange,
   variant: StockHistoryVariant,
-  requestId?: string
+  requestId: string | undefined,
+  requestCount: number
 ): Promise<StockHistoryNormalizationCounts & {
+  diagnostics: StockHistoryNormalizationResult['diagnostics']
   endpoint: string
   normalizedData: StockHistorySuccessResponse['data']
+  requestCount: number
   variant: StockHistoryVariant
 }> {
   const endpoint = getHistoryEndpoint(market, symbol, range, variant)
@@ -81,17 +101,45 @@ async function fetchAndNormalizeHistoryVariant(
 
   const data = await iolFetch(endpoint)
   const normalized = normalizeStockHistoryDataResult(data)
+  const duplicateRatio = normalized.totalPoints > 0
+    ? normalized.duplicatePoints / normalized.totalPoints
+    : 0
+  const hasDuplicateAnomaly =
+    duplicateRatio >= HISTORY_DUPLICATE_ANOMALY_RATIO
 
   if (normalized.discardedPoints > 0) {
-    const logNormalization = normalized.invalidPoints > 0 ? logServerWarn : logServerInfo
-    logNormalization(normalized.invalidPoints > 0 ? 'history.normalize.partial' : 'history.normalize.consolidated', {
+    const logNormalization =
+      normalized.invalidPoints > 0 || hasDuplicateAnomaly
+        ? logServerWarn
+        : logServerInfo
+    const event = normalized.invalidPoints > 0
+      ? 'history.normalize.partial'
+      : hasDuplicateAnomaly
+        ? 'history.normalize.anomaly'
+        : 'history.normalize.consolidated'
+
+    logNormalization(event, {
       requestId,
+      provider: 'iol',
       symbol,
       market,
       range,
       variant,
       endpoint,
+      requestCount,
+      recordsFetched: normalized.diagnostics.recordsFetched,
+      validRecords: normalized.diagnostics.validRecords,
+      uniqueTradingDays: normalized.totalPoints,
+      duplicateTradingDays: normalized.diagnostics.duplicateTradingDays,
+      conflictingDuplicates: normalized.diagnostics.conflictingDuplicatePoints,
+      identicalDuplicates: normalized.diagnostics.identicalDuplicatePoints,
+      ambiguousDuplicatePoints:
+        normalized.diagnostics.ambiguousDuplicatePoints,
+      omittedTradingDays: normalized.diagnostics.omittedTradingDays,
+      maxMultiplicity: normalized.diagnostics.maxMultiplicity,
+      duplicateRatio: Number(duplicateRatio.toFixed(6)),
       invalidPoints: normalized.invalidPoints,
+      duplicatesRemoved: normalized.duplicatePoints,
       duplicatePoints: normalized.duplicatePoints,
       discardedPoints: normalized.discardedPoints,
       totalPoints: normalized.totalPoints,
@@ -100,9 +148,27 @@ async function fetchAndNormalizeHistoryVariant(
     for (const [name, count] of [
       ['history.invalid_points.total', normalized.invalidPoints],
       ['history.duplicate_points.total', normalized.duplicatePoints],
+      ['history.duplicate_trading_days.total', normalized.diagnostics.duplicateTradingDays],
+      ['history.conflicting_duplicate_points.total', normalized.diagnostics.conflictingDuplicatePoints],
+      ['history.ambiguous_duplicate_points.total', normalized.diagnostics.ambiguousDuplicatePoints],
       ['history.discarded_points.total', normalized.discardedPoints],
     ] as const) {
-      if (count > 0) incrementMetricCounter(name, count, { market, range, variant })
+      if (count > 0) {
+        incrementMetricCounter(name, count, {
+          market,
+          provider: 'iol',
+          range,
+          variant,
+        })
+      }
+    }
+    if (hasDuplicateAnomaly) {
+      incrementMetricCounter('history.normalization_anomaly.total', 1, {
+        market,
+        provider: 'iol',
+        range,
+        variant,
+      })
     }
   }
 
@@ -113,18 +179,25 @@ async function fetchAndNormalizeHistoryVariant(
     variant,
     endpoint,
     itemCount: normalized.data.length,
+    recordsFetched: normalized.diagnostics.recordsFetched,
+    duplicateTradingDays: normalized.diagnostics.duplicateTradingDays,
+    conflictingDuplicates: normalized.diagnostics.conflictingDuplicatePoints,
+    duplicatesRemoved: normalized.duplicatePoints,
+    requestCount,
     invalidPoints: normalized.invalidPoints,
     duplicatePoints: normalized.duplicatePoints,
     discardedPoints: normalized.discardedPoints,
   })
 
   return {
+    diagnostics: normalized.diagnostics,
     endpoint,
     normalizedData: normalized.data,
     invalidPoints: normalized.invalidPoints,
     duplicatePoints: normalized.duplicatePoints,
     discardedPoints: normalized.discardedPoints,
     totalPoints: normalized.totalPoints,
+    requestCount,
     variant,
   }
 }
@@ -200,7 +273,8 @@ async function fetchHistoryResponse(
       market,
       range,
       'ajustada',
-      requestId
+      requestId,
+      1
     )
     let result = adjustedResult
 
@@ -212,9 +286,17 @@ async function fetchHistoryResponse(
         market,
         range,
         'sinAjustar',
-        requestId
+        requestId,
+        2
       )
     }
+    const selectedWindow = selectPerformanceWindow(
+      result.normalizedData,
+      range
+    )
+    const normalizedData = selectedWindow.start
+      ? selectedWindow.points
+      : result.normalizedData
     const fetchedAt = new Date().toISOString()
     incrementMetricCounter('history.variant.selected.total', 1, {
       market,
@@ -228,14 +310,22 @@ async function fetchHistoryResponse(
       range,
       variant: result.variant,
       endpoint: result.endpoint,
-      itemCount: result.normalizedData.length,
+      provider: 'iol',
+      requestCount: result.requestCount,
+      recordsFetched: result.diagnostics.recordsFetched,
+      uniqueTradingDays: result.totalPoints,
+      servedTradingDays: normalizedData.length,
+      duplicateTradingDays: result.diagnostics.duplicateTradingDays,
+      conflictingDuplicates: result.diagnostics.conflictingDuplicatePoints,
+      duplicatesRemoved: result.duplicatePoints,
+      itemCount: normalizedData.length,
       invalidPoints: result.invalidPoints,
       duplicatePoints: result.duplicatePoints,
       discardedPoints: result.discardedPoints,
     })
 
     const response = createHistoryResponse(
-      result.normalizedData,
+      normalizedData,
       symbol,
       market,
       range,
@@ -248,7 +338,7 @@ async function fetchHistoryResponse(
         resolvedVariant: result.variant,
         source: 'live',
         stale: false,
-        totalPoints: result.totalPoints,
+        totalPoints: normalizedData.length,
       })
     )
 

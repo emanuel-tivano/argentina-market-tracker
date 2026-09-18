@@ -64,13 +64,13 @@ describe('resolveCurrentStockQuote', () => {
 
     expect(currentQuote).toMatchObject({
       price: 7615,
-      variation: -4.33,
       previousClose: 7960,
       amountTraded: 20190703365,
       operationCount: 8864,
       description: 'Grupo Financiero Galicia S.A',
       source: 'detail',
     })
+    expect(currentQuote.variation).toBeCloseTo(-4.334170854271358, 12)
     expect(currentQuote.depth).toEqual(detail.depth)
   })
 
@@ -116,7 +116,6 @@ describe('resolveCurrentStockQuote', () => {
 
     expect(currentQuote).toMatchObject({
       price: 1028,
-      variation: -0.48,
       open: 1015,
       previousClose: 1032.95,
       low: 1008,
@@ -125,6 +124,7 @@ describe('resolveCurrentStockQuote', () => {
       amountTraded: 772426764.5,
       source: 'snapshot',
     })
+    expect(currentQuote.variation).toBeCloseTo(-0.47921002952708847, 12)
   })
 
   it('falls back to the latest historical amount when the snapshot omits it', () => {
@@ -193,10 +193,10 @@ describe('resolveCurrentStockQuote', () => {
 
     expect(currentQuote).toMatchObject({
       price: 1020,
-      variation: 2,
       previousClose: 1000,
       source: 'history',
     })
+    expect(currentQuote.variation).toBeCloseTo(2, 12)
   })
 })
 

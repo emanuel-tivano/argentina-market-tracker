@@ -4,6 +4,7 @@ import {
   type StockHistoryMarket,
 } from '@/lib/stockHistory'
 import { isValidFreshnessContract } from '@/lib/freshness'
+import { calculateDailyVariationPercentage } from '@/lib/marketPerformance'
 
 export interface StockQuoteDepthLevel {
   buyQuantity: number | null
@@ -156,18 +157,23 @@ export function normalizeStockQuoteDetail(
         .map(normalizeDepthLevel)
         .filter((level): level is StockQuoteDepthLevel => level !== null)
     : []
+  const previousClose = firstPositiveNumber(value, ['cierreAnterior'])
+  const calculatedVariation = calculateDailyVariationPercentage(
+    previousClose,
+    price
+  )
 
   return {
     symbol,
     market: optionalString(value.mercado) ?? '',
     description: optionalString(value.descripcionTitulo) ?? symbol,
     price,
-    variation: finiteNumber(value.variacion),
+    variation: calculatedVariation ?? finiteNumber(value.variacion),
     open: finiteNumber(value.apertura),
     high: finiteNumber(value.maximo),
     low: finiteNumber(value.minimo),
     timestamp: optionalString(value.fechaHora),
-    previousClose: finiteNumber(value.cierreAnterior),
+    previousClose,
     amountTraded: finiteNumber(value.montoOperado),
     volume: firstPositiveNumber(value, [
       'volumenNominalOperado',

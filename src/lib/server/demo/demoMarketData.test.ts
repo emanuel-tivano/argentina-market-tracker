@@ -11,7 +11,7 @@ describe('demoMarketData history clock', () => {
           expect(points).toEqual(getDemoHistoryData(simbolo, 'bCBA', range, now))
           const span = (Date.parse(points.at(-1)!.date) - Date.parse(points[0].date)) / 86400000
           expect(span).toBeGreaterThanOrEqual(days - 2)
-          expect(span).toBeLessThanOrEqual(days)
+          expect(span).toBeLessThanOrEqual(days + 3)
           expect(points.length).toBeGreaterThan(days * 0.7)
           expect(points.length).toBeLessThan(days * 0.72)
           expect(points.every((point, index) =>
@@ -43,7 +43,7 @@ describe('demoMarketData history clock', () => {
       new Date('2026-08-11T18:00:00.000Z')
     )
 
-    expect(points).toHaveLength(7)
+    expect(points).toHaveLength(6)
     expect(points.at(-1)?.date).toBe('2026-08-11')
     expect(points.every((point) => point.date.startsWith('2026-08'))).toBe(true)
     expect(

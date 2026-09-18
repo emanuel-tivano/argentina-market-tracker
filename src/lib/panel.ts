@@ -1,4 +1,5 @@
 import { parseFinancialNumber as toFiniteNumber } from '@/lib/financialNumber'
+import { calculateDailyVariationPercentage } from '@/lib/marketPerformance'
 
 export interface PanelTitulo {
   simbolo: string
@@ -294,6 +295,15 @@ function parsePanelTitulo(value: unknown): NormalizePanelTituloResult {
   setFiniteNumber(item, 'laminaMinima', value.laminaMinima)
   setFiniteNumber(item, 'lote', value.lote)
 
+  const calculatedVariation = calculateDailyVariationPercentage(
+    item.ultimoCierre,
+    item.ultimoPrecio
+  )
+
+  if (calculatedVariation !== null) {
+    item.variacionPorcentual = calculatedVariation
+  }
+
   if (!isOptionalStringInput(value.fechaHora)) {
     return { ok: false, reason: 'INVALID_TIMESTAMP' }
   }
@@ -435,6 +445,15 @@ export function normalizeQuoteData(
   setFiniteNumber(item, 'cantidadOperaciones', quoteData.cantidadOperaciones)
   setFiniteNumber(item, 'laminaMinima', quoteData.laminaMinima)
   setFiniteNumber(item, 'lote', quoteData.lote)
+
+  const calculatedVariation = calculateDailyVariationPercentage(
+    item.ultimoCierre,
+    item.ultimoPrecio
+  )
+
+  if (calculatedVariation !== null) {
+    item.variacionPorcentual = calculatedVariation
+  }
 
   if (isNonEmptyString(quoteData.fechaHora)) {
     item.fechaHora = quoteData.fechaHora

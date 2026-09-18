@@ -140,7 +140,7 @@ describe('AdvancedStockDetailChart', () => {
   it('receives unique server-normalized dates without dropping chart points', () => {
     const normalized = normalizeStockHistoryDataResult([
       {
-        fecha: '2026-06-23',
+        fechaHora: '2026-06-23T11:00:00',
         apertura: 101,
         maximo: 106,
         minimo: 100,
@@ -154,7 +154,7 @@ describe('AdvancedStockDetailChart', () => {
         ultimoPrecio: 101,
       },
       {
-        fecha: '2026-06-23',
+        fechaHora: '2026-06-23T17:00:00',
         apertura: 102,
         maximo: 107,
         minimo: 101,

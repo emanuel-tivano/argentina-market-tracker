@@ -159,7 +159,7 @@ describe('/api/favorites route', () => {
           simbolo: 'GGAL',
           descripcion: 'Grupo Financiero Galicia',
           ultimoPrecio: 100,
-          variacionPorcentual: 1.5,
+          variacionPorcentual: 1.522842639593902,
         },
       ],
       missingItems: [],

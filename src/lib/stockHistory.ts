@@ -74,7 +74,7 @@ export interface StockHistoryNormalizationCounts {
   duplicatePoints: number
   /** Compatibility aggregate: invalidPoints + duplicatePoints, not invalid rows. */
   discardedPoints: number
-  /** Final unique daily points. Raw rows = totalPoints + discardedPoints. */
+  /** Point count for this processing stage; response meta matches data.length. */
   totalPoints: number
 }
 
@@ -261,12 +261,44 @@ function extractArrayPayload(data: unknown): unknown[] | null {
   return null
 }
 
+function marketDateFromZonedTimestamp(value: string): string | null {
+  if (!parseStockHistoryCalendarDate(value.slice(0, 10))) {
+    return null
+  }
+
+  const instant = new Date(value)
+
+  if (!Number.isFinite(instant.getTime())) {
+    return null
+  }
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+  }).formatToParts(instant)
+  const year = parts.find((part) => part.type === 'year')?.value
+  const month = parts.find((part) => part.type === 'month')?.value
+  const day = parts.find((part) => part.type === 'day')?.value
+
+  return year && month && day ? `${year}-${month}-${day}` : null
+}
+
 function normalizeDate(value: unknown): string | null {
   if (!isNonEmptyString(value)) {
     return null
   }
 
   const trimmedValue = value.trim()
+
+  if (
+    /^\d{4}-\d{2}-\d{2}T/.test(trimmedValue) &&
+    /(?:Z|[+-]\d{2}:\d{2})$/.test(trimmedValue)
+  ) {
+    return marketDateFromZonedTimestamp(trimmedValue)
+  }
+
   const isoDate = trimmedValue.slice(0, 10)
 
   const parsedIsoDate = parseStockHistoryCalendarDate(isoDate)
@@ -311,7 +343,18 @@ function setOptionalNumber(
   )
 
   if (numberValue !== null) {
-    point[field] = numberValue
+    const acceptsValue =
+      field === 'dailyVariation'
+        ? true
+        : ['volume', 'amountTraded', 'openInterest', 'operationCount'].includes(
+              field
+            )
+          ? numberValue >= 0
+          : numberValue > 0
+
+    if (acceptsValue) {
+      point[field] = numberValue
+    }
   }
 }
 
@@ -357,7 +400,12 @@ function normalizeBid(value: unknown): StockHistoryPoint['bid'] {
       field === 'buyQuantity' || field === 'sellQuantity' ? 'grouped' : 'decimal'
     )
 
-    if (numericValue !== null) {
+    const isQuantity = field === 'buyQuantity' || field === 'sellQuantity'
+
+    if (
+      numericValue !== null &&
+      (isQuantity ? numericValue >= 0 : numericValue > 0)
+    ) {
       bid[field] = numericValue
     }
   }
@@ -373,7 +421,7 @@ function normalizeHistoryPoint(value: unknown): StockHistoryPoint | null {
   const date = normalizeDate(getFirstField(value, FIELD_ALIASES.date))
   const close = toFiniteNumber(getFirstField(value, FIELD_ALIASES.close))
 
-  if (!date || close === null) {
+  if (!date || close === null || close <= 0) {
     return null
   }
 
@@ -450,35 +498,108 @@ function normalizeHistoryPoint(value: unknown): StockHistoryPoint | null {
 
 export interface StockHistoryNormalizationResult extends StockHistoryNormalizationCounts {
   data: StockHistoryPoint[]
+  diagnostics: StockHistoryNormalizationDiagnostics
+}
+
+export interface StockHistoryNormalizationDiagnostics {
+  ambiguousDuplicatePoints: number
+  conflictingDuplicatePoints: number
+  duplicateTradingDays: number
+  identicalDuplicatePoints: number
+  maxMultiplicity: number
+  omittedTradingDays: number
+  recordsFetched: number
+  validRecords: number
+}
+
+type DailyHistorySelection = {
+  point: StockHistoryPoint | null
+  ambiguousPoints: number
+  conflictingPoints: number
+  identicalPoints: number
 }
 
 function historySnapshotTime(point: StockHistoryPoint) {
   const timestamp = point.timestamp
-  // Never compare a date-only value, an invalid time, or different date identities.
-  if (!timestamp || timestamp.slice(0, 10) !== point.date ||
-    !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?$/.test(timestamp)) return null
+  if (!timestamp ||
+    !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,7})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?$/.test(timestamp)) return null
   const zoned = /(?:Z|[+-]\d{2}:\d{2})$/.test(timestamp)
+  const timestampDate = zoned
+    ? marketDateFromZonedTimestamp(timestamp)
+    : timestamp.slice(0, 10)
+
+  // Never compare an invalid time or snapshots belonging to another market day.
+  if (timestampDate !== point.date) return null
   // Unzoned provider times share a local clock; append Z only to compare them
   // without depending on the server timezone. Do not mix them with zoned times.
   const time = Date.parse(zoned ? timestamp : `${timestamp}Z`)
   return Number.isFinite(time) ? { time, zoned } : null
 }
 
-function selectDailyHistoryPoint(points: StockHistoryPoint[]): StockHistoryPoint {
+function comparablePointSignature(point: StockHistoryPoint): string {
+  const comparablePoint = { ...point }
+  delete comparablePoint.timestamp
+
+  return JSON.stringify(comparablePoint)
+}
+
+function deterministicEquivalentPoint(points: StockHistoryPoint[]): StockHistoryPoint {
+  return [...points].sort((left, right) =>
+    (left.timestamp ?? '').localeCompare(right.timestamp ?? '')
+  ).at(-1)!
+}
+
+function selectDailyHistoryPoint(points: StockHistoryPoint[]): DailyHistorySelection {
   const fallback = points[points.length - 1]
-  if (points.length === 1) return fallback
+  if (points.length === 1) {
+    return {
+      point: fallback,
+      ambiguousPoints: 0,
+      conflictingPoints: 0,
+      identicalPoints: 0,
+    }
+  }
+
+  const signatures = new Set(points.map(comparablePointSignature))
+
+  if (signatures.size === 1) {
+    return {
+      point: deterministicEquivalentPoint(points),
+      ambiguousPoints: 0,
+      conflictingPoints: 0,
+      identicalPoints: points.length - 1,
+    }
+  }
+
   const times = points.map(historySnapshotTime)
   const first = points[0]
   if (times.some(time => time === null || time.zoned !== times[0]?.zoned) ||
     points.some(point => point.settlement !== first.settlement || point.currency !== first.currency)) {
-    // Unknown chronology or distinct series: keep legacy behavior, without
-    // inventing a settlement preference. See docs/HISTORY_NORMALIZATION.md.
-    return fallback
+    return {
+      point: null,
+      ambiguousPoints: points.length,
+      conflictingPoints: points.length - 1,
+      identicalPoints: 0,
+    }
   }
   const latestTime = times.reduce((latest, time) => Math.max(latest, time!.time), -Infinity)
   const latest = points.filter((_, index) => times[index]!.time === latestTime)
-  // A timestamp tie has no proven winner; retain the legacy last-row policy.
-  return latest[latest.length - 1]
+
+  if (new Set(latest.map(comparablePointSignature)).size > 1) {
+    return {
+      point: null,
+      ambiguousPoints: points.length,
+      conflictingPoints: points.length - 1,
+      identicalPoints: 0,
+    }
+  }
+
+  return {
+    point: deterministicEquivalentPoint(latest),
+    ambiguousPoints: 0,
+    conflictingPoints: points.length - 1,
+    identicalPoints: 0,
+  }
 }
 
 export function normalizeStockHistoryDataResult(
@@ -510,16 +631,46 @@ export function normalizeStockHistoryDataResult(
     pointsByDate.set(point.date, points)
   }
 
-  const uniqueItems = [...pointsByDate.values()].map(selectDailyHistoryPoint).sort((first, second) =>
-    first.date.localeCompare(second.date)
+  const groups = [...pointsByDate.values()]
+  const selections = groups.map(selectDailyHistoryPoint)
+  const ambiguousItemsCount = selections.reduce(
+    (count, selection) => count + selection.ambiguousPoints,
+    0
   )
-  const duplicateItemsCount = validItems.length - uniqueItems.length
+  const uniqueItems = selections
+    .map((selection) => selection.point)
+    .filter(isNotNull)
+    .sort((first, second) => first.date.localeCompare(second.date))
+  const duplicateItemsCount =
+    validItems.length - ambiguousItemsCount - uniqueItems.length
+  const totalInvalidItemsCount = invalidItemsCount + ambiguousItemsCount
 
   return {
     data: uniqueItems,
-    invalidPoints: invalidItemsCount,
+    diagnostics: {
+      ambiguousDuplicatePoints: ambiguousItemsCount,
+      conflictingDuplicatePoints: selections.reduce(
+        (count, selection) => count + selection.conflictingPoints,
+        0
+      ),
+      duplicateTradingDays: groups.filter((points) => points.length > 1).length,
+      identicalDuplicatePoints: selections.reduce(
+        (count, selection) => count + selection.identicalPoints,
+        0
+      ),
+      maxMultiplicity: Math.max(
+        0,
+        ...groups.map((points) => points.length)
+      ),
+      omittedTradingDays: selections.filter(
+        (selection) => selection.point === null
+      ).length,
+      recordsFetched: payload.length,
+      validRecords: validItems.length,
+    },
+    invalidPoints: totalInvalidItemsCount,
     duplicatePoints: duplicateItemsCount,
-    discardedPoints: invalidItemsCount + duplicateItemsCount,
+    discardedPoints: totalInvalidItemsCount + duplicateItemsCount,
     totalPoints: uniqueItems.length,
   }
 }
@@ -547,19 +698,20 @@ export function isStockHistoryErrorCode(
 }
 
 export function isStockHistoryPoint(value: unknown): value is StockHistoryPoint {
-  const optionalNumbers = [
+  const optionalPositiveNumbers = [
     'open',
     'high',
     'low',
-    'volume',
-    'dailyVariation',
     'previousClose',
-    'amountTraded',
     'averagePrice',
-    'openInterest',
-    'operationCount',
     'minimumSheet',
     'lot',
+  ] as const
+  const optionalNonNegativeNumbers = [
+    'volume',
+    'amountTraded',
+    'openInterest',
+    'operationCount',
   ] as const
   const optionalStrings = [
     'timestamp',
@@ -577,18 +729,33 @@ export function isStockHistoryPoint(value: unknown): value is StockHistoryPoint 
   return (
     parseStockHistoryCalendarDate(value.date) !== null &&
     isFiniteNumber(value.close) &&
-    optionalNumbers.every(
-      (field) => value[field] === undefined || isFiniteNumber(value[field])
+    value.close > 0 &&
+    optionalPositiveNumbers.every(
+      (field) =>
+        value[field] === undefined ||
+        (isFiniteNumber(value[field]) && value[field] > 0)
     ) &&
+    optionalNonNegativeNumbers.every(
+      (field) =>
+        value[field] === undefined ||
+        (isFiniteNumber(value[field]) && value[field] >= 0)
+    ) &&
+    (value.dailyVariation === undefined ||
+      isFiniteNumber(value.dailyVariation)) &&
     optionalStrings.every(
       (field) => value[field] === undefined || isNonEmptyString(value[field])
     ) &&
     (bid === undefined ||
       (isRecord(bid) &&
-        ['buyQuantity', 'buyPrice', 'sellPrice', 'sellQuantity'].every(
+        ['buyQuantity', 'sellQuantity'].every(
           (field) =>
             bid[field] === undefined ||
-            isFiniteNumber(bid[field])
+            (isFiniteNumber(bid[field]) && bid[field] >= 0)
+        ) &&
+        ['buyPrice', 'sellPrice'].every(
+          (field) =>
+            bid[field] === undefined ||
+            (isFiniteNumber(bid[field]) && bid[field] > 0)
         )))
   )
 }

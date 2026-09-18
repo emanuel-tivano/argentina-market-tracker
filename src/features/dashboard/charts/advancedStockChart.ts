@@ -1,5 +1,10 @@
 import { type StockHistoryPoint } from '@/lib/stockHistory'
 import { parseStockHistoryCalendarDate } from '@/lib/stockHistoryDate'
+import {
+  calculateDailyVariationPercentage,
+  calculateReturnPercentage,
+  isSuspiciousPriceTransition,
+} from '@/lib/marketPerformance'
 
 export type CurrentStockQuote = {
   close: number
@@ -107,13 +112,23 @@ export function calculateDailyQuoteMetrics(
       ? latestHistoricalPoint.dailyVariation
       : null
   const calculatedVariation =
-    previousClose !== null
-      ? ((latestHistoricalPoint.close - previousClose) / previousClose) * 100
+    previousClose !== null &&
+    !(
+      previousHistoricalPoint &&
+      isSuspiciousPriceTransition(
+        previousHistoricalPoint,
+        latestHistoricalPoint
+      )
+    )
+      ? calculateDailyVariationPercentage(
+          previousClose,
+          latestHistoricalPoint.close
+        )
       : null
 
   return {
     previousClose,
-    dailyVariation: explicitVariation ?? calculatedVariation,
+    dailyVariation: calculatedVariation ?? explicitVariation,
   }
 }
 
@@ -453,8 +468,7 @@ export function calculatePeriodMetrics(
 
   return {
     currentPrice: last.close,
-    periodVariation:
-      first.close === 0 ? null : ((last.close - first.close) / first.close) * 100,
+    periodVariation: calculateReturnPercentage(first.close, last.close),
     periodHigh,
     periodLow,
     averageVolume:

@@ -40,12 +40,16 @@ export function resolvePreviousClose({
   }
 
   if (price !== null && variationValue !== null) {
-    const factor = 1 + variationValue / 100
+    const derivedClose = deriveStartPriceFromReturnPercentage(
+      price,
+      variationValue
+    )
 
-    if (factor > 0) {
-      return price / factor
+    if (derivedClose !== null) {
+      return derivedClose
     }
   }
 
   return positiveNumber(historicalPreviousClose)
 }
+import { deriveStartPriceFromReturnPercentage } from '@/lib/marketPerformance'

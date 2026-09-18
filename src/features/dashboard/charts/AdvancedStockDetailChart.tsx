@@ -19,6 +19,10 @@ import {
   formatPercentage,
 } from '@/lib/formatters'
 import { type StockHistoryPoint } from '@/lib/stockHistory'
+import {
+  calculateDailyVariationPercentage,
+  isSuspiciousPriceTransition,
+} from '@/lib/marketPerformance'
 import { THEME_CHANGE_EVENT } from '@/lib/theme'
 import {
   hasSufficientCandles,
@@ -92,10 +96,12 @@ export default function AdvancedStockDetailChart({
     return new Map(
       normalizedPoints.map((point, index) => {
         const previousClose = normalizedPoints[index - 1]?.close
+        const previousPoint = normalizedPoints[index - 1]
         const variation =
-          previousClose === undefined || previousClose === 0
+          previousClose === undefined ||
+          (previousPoint && isSuspiciousPriceTransition(previousPoint, point))
             ? null
-            : ((point.close - previousClose) / previousClose) * 100
+            : calculateDailyVariationPercentage(previousClose, point.close)
 
         return [point.time, variation] as const
       })

@@ -11,11 +11,27 @@ import {
 describe('stock history normalization', () => {
   it('separates invalid rows from duplicate valid snapshots and chooses the latest time', () => {
     const latest = { fechaHora: '2022-05-17T17:00:03.007', ultimoPrecio: 100, apertura: 98, maximo: 102, minimo: 97, volumenNominal: 800, montoOperado: 80000 }
-    const early = { ...latest, fechaHora: '2022-05-17T11:00:09.243', volumenNominal: 0, montoOperado: 0 }
+    const early = {
+      ...latest,
+      fechaHora: '2022-05-17T11:00:09.243',
+      apertura: 97,
+      maximo: 101,
+      minimo: 96,
+      volumenNominal: 0,
+      montoOperado: 0,
+    }
     const payload = [latest, { fecha: 'invalid', ultimoPrecio: 100 }, early]
     const result = normalizeStockHistoryDataResult(payload)
     expect(result).toMatchObject({ invalidPoints: 1, duplicatePoints: 1, discardedPoints: 2, totalPoints: 1 })
     expect(result.data).toEqual(normalizeStockHistoryData([latest]))
+    expect(result.diagnostics).toMatchObject({
+      ambiguousDuplicatePoints: 0,
+      conflictingDuplicatePoints: 1,
+      duplicateTradingDays: 1,
+      maxMultiplicity: 2,
+      recordsFetched: 3,
+      validRecords: 2,
+    })
     expect(normalizeStockHistoryDataResult([...payload].reverse())).toEqual(result)
     expect(normalizeStockHistoryDataResult([latest, early])).toMatchObject({ invalidPoints: 0, duplicatePoints: 1 })
   })
@@ -26,6 +42,19 @@ describe('stock history normalization', () => {
     expect(normalizeStockHistoryData([later, earlier])).toEqual(normalizeStockHistoryData([later]))
   })
 
+  it('maps explicitly zoned timestamps to the Argentina trading date', () => {
+    const result = normalizeStockHistoryDataResult([
+      { fechaHora: '2026-05-08T01:30:00Z', ultimoPrecio: 100 },
+      { fechaHora: '2026-05-07T22:45:00-03:00', ultimoPrecio: 105 },
+    ])
+
+    expect(result).toMatchObject({
+      data: [{ date: '2026-05-07', close: 105 }],
+      duplicatePoints: 1,
+      invalidPoints: 0,
+    })
+  })
+
   it.each([
     [undefined, '2026-05-07T17:00:00'],
     ['invalid', '2026-05-07T17:00:00'],
@@ -33,14 +62,94 @@ describe('stock history normalization', () => {
     ['2026-05-07T18:00:00Z', '2026-05-07T17:00:00'],
     ['2026-05-08T18:00:00', '2026-05-07T17:00:00'],
     ['2026-05-07T17:00:00', '2026-05-07T17:00:00'],
-  ])('preserves the last valid row when chronology is ambiguous (%s, %s)', (first, last) => {
+  ])('omits conflicting rows when chronology is ambiguous (%s, %s)', (first, last) => {
     const points = [
       { date: '2026-05-07', timestamp: first, close: 101 },
       { date: '2026-05-07', timestamp: last, close: 102 },
     ]
     expect(normalizeStockHistoryDataResult(points)).toMatchObject({
-      data: [expect.objectContaining({ close: 102 })], invalidPoints: 0, duplicatePoints: 1,
+      data: [],
+      diagnostics: {
+        ambiguousDuplicatePoints: 2,
+        conflictingDuplicatePoints: 1,
+        omittedTradingDays: 1,
+      },
+      invalidPoints: 2,
+      duplicatePoints: 0,
     })
+  })
+
+  it.each([2, 3])('consolidates %i identical rows without inventing a winner', (count) => {
+    const row = {
+      fecha: '2026-05-07',
+      ultimoPrecio: 101,
+      apertura: 100,
+      maximo: 102,
+      minimo: 99,
+      volumenNominal: 1000,
+    }
+    const result = normalizeStockHistoryDataResult(
+      Array.from({ length: count }, () => ({ ...row }))
+    )
+
+    expect(result).toMatchObject({
+      data: [{ date: '2026-05-07', close: 101 }],
+      diagnostics: {
+        conflictingDuplicatePoints: 0,
+        duplicateTradingDays: 1,
+        identicalDuplicatePoints: count - 1,
+        maxMultiplicity: count,
+      },
+      duplicatePoints: count - 1,
+      invalidPoints: 0,
+      totalPoints: 1,
+    })
+  })
+
+  it('consolidates an inclusive boundary repeated across fetched pages', () => {
+    const firstPage = [
+      { fecha: '2026-05-06', ultimoPrecio: 100 },
+      { fecha: '2026-05-07', ultimoPrecio: 101 },
+    ]
+    const secondPage = [
+      { fecha: '2026-05-07', ultimoPrecio: 101 },
+      { fecha: '2026-05-08', ultimoPrecio: 102 },
+    ]
+    const result = normalizeStockHistoryDataResult([
+      ...firstPage,
+      ...secondPage,
+    ])
+
+    expect(result).toMatchObject({
+      data: [
+        { date: '2026-05-06', close: 100 },
+        { date: '2026-05-07', close: 101 },
+        { date: '2026-05-08', close: 102 },
+      ],
+      diagnostics: {
+        conflictingDuplicatePoints: 0,
+        duplicateTradingDays: 1,
+        identicalDuplicatePoints: 1,
+      },
+      duplicatePoints: 1,
+      totalPoints: 3,
+    })
+  })
+
+  it('normalizes a synthetic five-year multi-page payload with inclusive boundaries', () => {
+    const pageStarts = Array.from({ length: 5 }, (_, year) => 2021 + year)
+    const pages = pageStarts.map((year) => [
+      { fecha: `${year}-01-04`, ultimoPrecio: 100 + year },
+      { fecha: `${year + 1}-01-04`, ultimoPrecio: 101 + year },
+    ])
+    const result = normalizeStockHistoryDataResult(pages.flat())
+
+    expect(result.data).toHaveLength(6)
+    expect(result.duplicatePoints).toBe(4)
+    expect(new Set(result.data.map((point) => point.date)).size).toBe(6)
+    expect(result.data.every((point, index) =>
+      index === 0 || result.data[index - 1].date < point.date
+    )).toBe(true)
   })
 
   it('preserves all available sessions in a long series with many intraday snapshots', () => {
@@ -71,20 +180,38 @@ describe('stock history normalization', () => {
   })
 
   it('applies decimal policies to OHLC and grouped policies only to quantities', () => {
-    expect(normalizeStockHistoryData([{
+    const point = normalizeStockHistoryData([{
       fecha: '2026-05-07', ultimoPrecio: '1.234', apertura: '0.123',
       maximo: '1.234', minimo: '-0.123', cierreAnterior: '0.000',
       variacion: '0.123', montoOperado: '1.234', precioPromedio: '1.234',
       volumen: '1.234', cantidadOperaciones: '1,234', interesesAbiertos: '1.234',
       laminaMinima: '1.234', lote: '1.234',
       puntas: [{ cantidadCompra: '1.234', precioCompra: '0.123', precioVenta: '1.234', cantidadVenta: '1,234' }],
-    }])[0]).toMatchObject({
-      close: 1.234, open: 0.123, high: 1.234, low: -0.123, previousClose: 0,
+    }])[0]
+    expect(point).toMatchObject({
+      close: 1.234, open: 0.123, high: 1.234,
       dailyVariation: 0.123, amountTraded: 1.234, averagePrice: 1.234,
       volume: 1234, operationCount: 1234, openInterest: 1234, minimumSheet: 1234, lot: 1234,
       bid: { buyQuantity: 1234, buyPrice: 0.123, sellPrice: 1.234, sellQuantity: 1234 },
     })
+    expect(point).not.toHaveProperty('low')
+    expect(point).not.toHaveProperty('previousClose')
   })
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, null])(
+    'discards impossible close values (%s)',
+    (close) => {
+      expect(
+        normalizeStockHistoryDataResult([
+          { fecha: '2026-05-07', ultimoPrecio: close },
+          { fecha: '2026-05-08', ultimoPrecio: 100 },
+        ])
+      ).toMatchObject({
+        data: [{ date: '2026-05-08', close: 100 }],
+        invalidPoints: 1,
+      })
+    }
+  )
 
   it.each(['abc123', '1e3', '12.34.56', '$ 123.45'])('discards malformed prices %s without stripping characters', (price) => {
     expect(normalizeStockHistoryDataResult([
@@ -279,7 +406,7 @@ describe('stock history normalization', () => {
         { fecha: 'invalid', ultimoPrecio: 100 },
         { fecha: '2026-05-07', ultimoPrecio: 101 },
       ])
-    ).toEqual({
+    ).toMatchObject({
       data: [{ date: '2026-05-07', close: 101 }],
       invalidPoints: 1,
       duplicatePoints: 0,
@@ -298,7 +425,7 @@ describe('stock history normalization', () => {
         { fecha: '2025-04-31', ultimoPrecio: 997 },
         { fecha: '2026-01-01', ultimoPrecio: 102 },
       ])
-    ).toEqual({
+    ).toMatchObject({
       data: [
         { date: '2024-02-29', close: 101 },
         { date: '2026-01-01', close: 102 },
@@ -311,21 +438,21 @@ describe('stock history normalization', () => {
     })
   })
 
-  it('deduplicates valid dates before sorting and keeps the last payload row', () => {
+  it('deduplicates non-consecutive unordered dates using the latest snapshot', () => {
     const result = normalizeStockHistoryDataResult([
-      { fecha: '2026-05-08', ultimoPrecio: 108 },
-      { fecha: '2026-05-07', ultimoPrecio: 101 },
-      { fecha: '2026-05-08', ultimoPrecio: 109 },
+      { fechaHora: '2026-05-08T10:00:00', ultimoPrecio: 108 },
+      { fechaHora: '2026-05-07T10:00:00', ultimoPrecio: 101 },
+      { fechaHora: '2026-05-08T12:00:00', ultimoPrecio: 109 },
       { fecha: '2026-05-06', ultimoPrecio: 99 },
-      { fecha: '2026-05-08', ultimoPrecio: 110, volumen: 3000 },
-      { fecha: '2026-05-07', ultimoPrecio: 102 },
+      { fechaHora: '2026-05-08T17:00:00', ultimoPrecio: 110, volumen: 3000 },
+      { fechaHora: '2026-05-07T17:00:00', ultimoPrecio: 102 },
     ])
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       data: [
         { date: '2026-05-06', close: 99 },
-        { date: '2026-05-07', close: 102 },
-        { date: '2026-05-08', close: 110, volume: 3000 },
+        { date: '2026-05-07', timestamp: '2026-05-07T17:00:00', close: 102 },
+        { date: '2026-05-08', timestamp: '2026-05-08T17:00:00', close: 110, volume: 3000 },
       ],
       invalidPoints: 0,
       duplicatePoints: 3,
@@ -344,7 +471,7 @@ describe('stock history normalization', () => {
         { fecha: '2026-05-07', ultimoPrecio: 101 },
         { fecha: '2026-05-07', ultimoPrecio: 'invalid' },
       ])
-    ).toEqual({
+    ).toMatchObject({
       data: [{ date: '2026-05-07', close: 101 }],
       invalidPoints: 1,
       duplicatePoints: 0,
@@ -359,7 +486,7 @@ describe('stock history normalization', () => {
       { fecha: '2026-05-07', ultimoPrecio: 101, apertura: 100 },
     ]
 
-    expect(normalizeStockHistoryDataResult(payload)).toEqual({
+    expect(normalizeStockHistoryDataResult(payload)).toMatchObject({
       data: [
         { date: '2026-05-07', close: 101, open: 100 },
         { date: '2026-05-08', close: 108, volume: 2000 },

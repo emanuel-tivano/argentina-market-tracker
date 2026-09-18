@@ -6,6 +6,7 @@ import {
 import { type StockHistoryPoint } from '@/lib/stockHistory'
 import { resolvePreviousClose } from '@/features/dashboard/shared/stockQuoteMetrics'
 import { type StockQuoteDetail } from '@/lib/stockQuote'
+import { calculateDailyVariationPercentage } from '@/lib/marketPerformance'
 import { type ResolvedCurrentQuote } from './currentQuoteTypes'
 
 export {
@@ -61,10 +62,9 @@ export function resolveCurrentStockQuote(
     return {
       price: quoteDetail.price,
       variation:
-        quoteDetail.variation ??
         (previousClose !== null
-          ? ((quoteDetail.price - previousClose) / previousClose) * 100
-          : null),
+          ? calculateDailyVariationPercentage(previousClose, quoteDetail.price)
+          : quoteDetail.variation),
       open: positivePrice(quoteDetail.open),
       previousClose,
       low: positivePrice(quoteDetail.low),
@@ -169,11 +169,12 @@ export function resolveCurrentStockQuote(
   return {
     price: snapshotPrice,
     variation:
-      snapshotVariation ??
       (snapshotPreviousClose !== null
-        ? ((snapshotPrice - snapshotPreviousClose) / snapshotPreviousClose) *
-          100
-        : null),
+        ? calculateDailyVariationPercentage(
+            snapshotPreviousClose,
+            snapshotPrice
+          )
+        : snapshotVariation),
     open: positivePrice(stock.open),
     previousClose: snapshotPreviousClose,
     low: positivePrice(stock.min),

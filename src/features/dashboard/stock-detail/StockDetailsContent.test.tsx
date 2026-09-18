@@ -30,7 +30,7 @@ vi.mock('@/features/dashboard/stock-detail/useStockHistory', () => ({
   useStockHistory: () => ({
     points: [
       {
-        date: '2026-05-01',
+        date: '2026-04-02',
         open: 98,
         high: 102,
         low: 97,
@@ -115,8 +115,8 @@ const stock: StockData = {
 const pageHistory = {
   points: [
     {
-      date: '2026-05-01',
-      timestamp: '2026-05-01T20:00:00.000Z',
+      date: '2026-04-02',
+      timestamp: '2026-04-02T20:00:00.000Z',
       open: 98,
       high: 102,
       low: 97,
@@ -276,6 +276,39 @@ describe('StockDetailsContent variants', () => {
       )
     ).not.toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('Último mes:').textContent).toContain('—')
+  })
+
+  it('omits performance when an adjusted provider series still has a split-like jump', () => {
+    render(
+      <StockDetailsContent
+        stock={stock}
+        variant="page"
+        historyRange="1M"
+        onHistoryRangeChange={vi.fn()}
+        history={{
+          ...pageHistory,
+          points: [
+            { date: '2026-07-03', close: 80000 },
+            { date: '2026-07-31', close: 83000 },
+            { date: '2026-08-03', close: 8105 },
+          ],
+          meta: {
+            ...pageHistory.meta,
+            resolvedVariant: 'ajustada',
+            source: 'live',
+            totalPoints: 3,
+          },
+        }}
+      />
+    )
+
+    expect(screen.getByText('Último mes:').textContent).toContain('—')
+    expect(
+      screen.getByText(
+        'La serie contiene un salto compatible con una acción societaria no ajustada; se omite el rendimiento.'
+      )
+    ).not.toBeNull()
   })
 
   it('keeps stale and unadjusted signals visible together', () => {
@@ -305,14 +338,7 @@ describe('StockDetailsContent variants', () => {
     ).not.toBeNull()
   })
 
-  it.each([
-    [3, 0, 8, 'Se descartaron 3 registros inválidos del upstream; se muestran 8 ruedas.'],
-    [0, 1374, 1220, 'Se consolidaron 1374 registros repetidos; se muestran 1220 ruedas.'],
-    [4, 1370, 1220, 'Se consolidaron 1370 registros repetidos y se descartaron 4 registros inválidos del upstream; se muestran 1220 ruedas.'],
-    [1, 0, 1, 'Se descartó 1 registro inválido del upstream; se muestra 1 rueda.'],
-    [0, 1, 1, 'Se consolidó 1 registro repetido; se muestra 1 rueda.'],
-    [1, 1, 1, 'Se consolidó 1 registro repetido y se descartó 1 registro inválido del upstream; se muestra 1 rueda.'],
-  ] as const)('distinguishes %i invalid and %i duplicate rows', (invalidPoints, duplicatePoints, totalPoints, message) => {
+  it('keeps safely consolidated duplicate counts out of the public UI', () => {
     render(
       <StockDetailsContent
         stock={stock}
@@ -322,21 +348,55 @@ describe('StockDetailsContent variants', () => {
         history={{
           ...pageHistory,
           meta: {
-            ...pageHistory.meta,
-            invalidPoints,
-            duplicatePoints,
-            discardedPoints: invalidPoints + duplicatePoints,
-            totalPoints,
+            invalidPoints: 0,
+            duplicatePoints: 1374,
+            discardedPoints: 1374,
+            resolvedVariant: 'ajustada',
+            source: 'live',
+            stale: false,
+            totalPoints: 1220,
           },
         }}
       />
     )
 
-    const notice = screen.getByText(message)
-    expect(notice.classList.contains('stock-history-subtitle-info')).toBe(invalidPoints === 0)
-    expect(screen.queryByText(/3 de 8/)).toBeNull()
+    expect(screen.queryByText(/Se consolid/)).toBeNull()
+    expect(screen.queryByText(/1374/)).toBeNull()
     expect(screen.getByText('Último mes:')).not.toBeNull()
   })
+
+  it.each([1, 3])(
+    'shows a user-facing quality warning for %i omitted inconsistent rows',
+    (invalidPoints) => {
+      render(
+        <StockDetailsContent
+          stock={stock}
+          variant="page"
+          historyRange="1M"
+          onHistoryRangeChange={vi.fn()}
+          history={{
+            ...pageHistory,
+            meta: {
+              invalidPoints,
+              duplicatePoints: 1374,
+              discardedPoints: invalidPoints + 1374,
+              resolvedVariant: 'ajustada',
+              source: 'live',
+              stale: false,
+              totalPoints: 1220,
+            },
+          }}
+        />
+      )
+
+      expect(
+        screen.getByText(
+          'Algunos datos históricos presentan inconsistencias y fueron omitidos.'
+        )
+      ).not.toBeNull()
+      expect(screen.queryByText(/1374/)).toBeNull()
+    }
+  )
 
   it('omits the discarded-points message when the count is zero', () => {
     render(<PageContentHarness />)
@@ -386,7 +446,7 @@ describe('StockDetailsContent variants', () => {
     expect(screen.queryByText(/Precio sincronizado/)).toBeNull()
     expect(screen.queryByText(/Historico actualizado/)).toBeNull()
     expect(chartMocks.simplePoints).toHaveBeenLastCalledWith([
-      expect.objectContaining({ date: '2026-05-01', close: 100 }),
+      expect.objectContaining({ date: '2026-04-02', close: 100 }),
       expect.objectContaining({ date: '2026-05-02', close: 110 }),
     ])
   })
@@ -474,7 +534,7 @@ describe('StockDetailsContent variants', () => {
     expect(marketDepth.querySelectorAll('tbody tr')).toHaveLength(1)
     expect(within(liquiditySection).getByText('ARS')).not.toBeNull()
     expect(chartMocks.advancedPoints).toHaveBeenLastCalledWith([
-      expect.objectContaining({ date: '2026-05-01', close: 100 }),
+      expect.objectContaining({ date: '2026-04-02', close: 100 }),
       expect.objectContaining({ date: '2026-05-02', close: 110 }),
       expect.objectContaining({ date: '2026-05-03', close: 110 }),
     ])
@@ -507,7 +567,7 @@ describe('StockDetailsContent variants', () => {
     )
 
     expect(chartMocks.advancedPoints).toHaveBeenLastCalledWith([
-      ...pageHistory.points,
+      pageHistory.points[1],
       expect.objectContaining({
         date: '2026-06-24',
         close: 7615,
@@ -526,7 +586,6 @@ describe('StockDetailsContent variants', () => {
 
     expect(quoteMocks.useStockQuote).toHaveBeenCalledWith('GGAL')
     expect(chartMocks.simplePoints).toHaveBeenLastCalledWith([
-      expect.objectContaining({ date: '2026-05-01', close: 100 }),
       expect.objectContaining({ date: '2026-05-02', close: 110 }),
       expect.objectContaining({
         date: '2026-06-24',

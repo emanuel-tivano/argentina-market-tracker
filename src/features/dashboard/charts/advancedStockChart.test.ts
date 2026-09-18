@@ -54,8 +54,7 @@ describe('advancedStockChart helpers', () => {
   })
 
   it('falls back to the prior valid close and calculates daily variation', () => {
-    expect(
-      calculateDailyQuoteMetrics(
+    const metrics = calculateDailyQuoteMetrics(
         {
           date: '2026-06-23',
           close: 110,
@@ -64,10 +63,8 @@ describe('advancedStockChart helpers', () => {
         },
         { date: '2026-06-22', close: 100 }
       )
-    ).toEqual({
-      previousClose: 100,
-      dailyVariation: 10,
-    })
+    expect(metrics.previousClose).toBe(100)
+    expect(metrics.dailyVariation).toBeCloseTo(10, 12)
   })
 
   it('keeps a real zero daily variation when current and previous close match', () => {
@@ -84,6 +81,18 @@ describe('advancedStockChart helpers', () => {
     ).toEqual({
       previousClose: 100,
       dailyVariation: 0,
+    })
+  })
+
+  it('does not present a split-like discontinuity as daily performance', () => {
+    expect(
+      calculateDailyQuoteMetrics(
+        { date: '2026-08-03', close: 8105 },
+        { date: '2026-07-31', close: 83000 }
+      )
+    ).toEqual({
+      previousClose: 83000,
+      dailyVariation: null,
     })
   })
 
@@ -486,7 +495,7 @@ describe('advancedStockChart helpers', () => {
     expect(hasSufficientCandles(normalized, candles)).toBe(false)
   })
 
-  it('sorts candles and resolves duplicate calendar dates', () => {
+  it('renders exactly one candle per trading day after resolving duplicate dates', () => {
     const normalized = normalizeHistoryPoints([
       {
         date: '2026-05-08T15:00:00.000Z',
@@ -537,14 +546,15 @@ describe('advancedStockChart helpers', () => {
       { date: '2026-05-03', close: 120 },
     ])
 
-    expect(calculatePeriodMetrics(normalized)).toEqual({
+    const metrics = calculatePeriodMetrics(normalized)
+    expect(metrics).toMatchObject({
       currentPrice: 120,
-      periodVariation: 20,
       periodHigh: 120,
       periodLow: 98,
       averageVolume: 2000,
       highLowRange: 22,
       pointCount: 3,
     })
+    expect(metrics?.periodVariation).toBeCloseTo(20, 12)
   })
 })

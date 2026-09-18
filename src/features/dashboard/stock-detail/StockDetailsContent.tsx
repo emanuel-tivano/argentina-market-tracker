@@ -27,6 +27,10 @@ import {
 } from '@/features/dashboard/stocks/stockVariationSeverity'
 import { type StockQuoteDetail } from '@/lib/stockQuote'
 import {
+  findSuspiciousPriceDiscontinuity,
+  selectPerformanceWindow,
+} from '@/lib/marketPerformance'
+import {
   HistoryChartSection,
   HistoryRangeControls,
   HistorySectionHeader,
@@ -62,28 +66,8 @@ function getHistoryVariationClass(value: number | null): string {
     : 'stock-history-performance-negative'
 }
 
-function getHistoryNormalizationMessage(
-  invalidPoints: number,
-  duplicatePoints: number,
-  totalPoints: number
-): string {
-  const parts: string[] = []
-  if (duplicatePoints > 0) {
-    parts.push(duplicatePoints === 1
-      ? 'se consolidó 1 registro repetido'
-      : `se consolidaron ${duplicatePoints} registros repetidos`)
-  }
-  if (invalidPoints > 0) {
-    parts.push(invalidPoints === 1
-      ? 'se descartó 1 registro inválido del upstream'
-      : `se descartaron ${invalidPoints} registros inválidos del upstream`)
-  }
-  const normalizationCopy = parts.join(' y ')
-  const displayedCopy =
-    totalPoints === 1 ? 'se muestra 1 rueda' : `se muestran ${totalPoints} ruedas`
-
-  return `${normalizationCopy.charAt(0).toUpperCase()}${normalizationCopy.slice(1)}; ${displayedCopy}.`
-}
+const HISTORY_DATA_QUALITY_MESSAGE =
+  'Algunos datos históricos presentan inconsistencias y fueron omitidos.'
 
 function HistorySection({
   stock,
@@ -114,7 +98,13 @@ function HistorySection({
       }),
     [currentQuote, history.points, quoteSource]
   )
-  const chartSeries = syncedHistory.points
+  const performanceWindow = useMemo(
+    () => selectPerformanceWindow(syncedHistory.points, historyRange),
+    [historyRange, syncedHistory.points]
+  )
+  const chartSeries = performanceWindow.start
+    ? performanceWindow.points
+    : syncedHistory.points
   const normalizedHistoryPoints = useMemo(
     () => normalizeHistoryPoints(chartSeries),
     [chartSeries]
@@ -123,7 +113,19 @@ function HistorySection({
     () => calculatePeriodStats(normalizedHistoryPoints),
     [normalizedHistoryPoints]
   )
-  const periodVariation = periodMetrics?.periodVariation ?? null
+  const isUnadjustedHistory =
+    history.meta?.source === 'live' &&
+    history.meta.resolvedVariant === 'sinAjustar'
+  const suspiciousPriceDiscontinuity = useMemo(
+    () => findSuspiciousPriceDiscontinuity(chartSeries),
+    [chartSeries]
+  )
+  const periodVariation =
+    performanceWindow.status === 'ok' &&
+    !isUnadjustedHistory &&
+    !suspiciousPriceDiscontinuity
+      ? (periodMetrics?.periodVariation ?? null)
+      : null
   const periodVariationClass = getHistoryVariationClass(periodVariation)
   const historyDataStatus = history.meta
     ? [
@@ -140,9 +142,6 @@ function HistorySection({
         .filter(Boolean)
         .join(' · ')
     : null
-  const isUnadjustedHistory =
-    history.meta?.source === 'live' &&
-    history.meta.resolvedVariant === 'sinAjustar'
   const historyMetaMessage =
     history.viewStatus === 'success' && history.meta
       ? history.meta.stale
@@ -151,12 +150,13 @@ function HistorySection({
           : 'Mostrando histórico cacheado por una falla temporal del upstream.'
         : isUnadjustedHistory
           ? 'Se está mostrando histórico sin ajustar porque no había histórico ajustado disponible.'
-        : history.meta.invalidPoints > 0 || history.meta.duplicatePoints > 0
-          ? getHistoryNormalizationMessage(
-              history.meta.invalidPoints,
-              history.meta.duplicatePoints,
-              history.meta.totalPoints
-            )
+        : suspiciousPriceDiscontinuity
+          ? 'La serie contiene un salto compatible con una acción societaria no ajustada; se omite el rendimiento.'
+        : history.meta.invalidPoints > 0
+          ? HISTORY_DATA_QUALITY_MESSAGE
+        : performanceWindow.status === 'missing-reference' ||
+            performanceWindow.status === 'insufficient'
+          ? 'No hay una cotización de referencia suficiente para calcular el rendimiento del período.'
           : history.meta.source === 'demo'
             ? 'Serie histórica de demo determinística.'
             : null

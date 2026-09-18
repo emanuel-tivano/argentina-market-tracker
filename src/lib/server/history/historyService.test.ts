@@ -6,6 +6,7 @@ import {
   IolUpstreamTimeoutError,
   isRecoverableIolUpstreamError,
 } from '@/lib/server/upstream/iol'
+import { selectPerformanceWindow } from '@/lib/marketPerformance'
 
 const OLD_ENV = process.env
 
@@ -45,6 +46,50 @@ function upstreamHttpError(status: number): IolUpstreamHttpError {
 }
 
 describe('historyService', () => {
+  it('anchors PAMP 1Y to the last available close instead of the server clock', async () => {
+    vi.setSystemTime(new Date('2026-09-18T15:00:00.000Z'))
+    const iolFetch = vi.fn().mockResolvedValue([
+      { fecha: '2025-09-04', ultimoPrecio: 3500 },
+      { fecha: '2025-09-17', ultimoPrecio: 3595 },
+      { fecha: '2025-09-18', ultimoPrecio: 3520 },
+      { fecha: '2026-09-17', ultimoPrecio: 5335 },
+    ])
+    const { getOrCreateHistoryResponse } = await loadHistoryService(iolFetch)
+    const response = await getOrCreateHistoryResponse('PAMP', 'bCBA', '1Y')
+
+    expect(iolFetch).toHaveBeenCalledExactlyOnceWith(
+      '/api/v2/bCBA/Titulos/PAMP/Cotizacion/seriehistorica/2025-09-04/2026-09-18/ajustada'
+    )
+    expect(response.data.map((point) => [point.date, point.close])).toEqual([
+      ['2025-09-17', 3595],
+      ['2025-09-18', 3520],
+      ['2026-09-17', 5335],
+    ])
+    expect(
+      selectPerformanceWindow(response.data, '1Y').returnPercentage
+    ).toBeCloseTo(48.40055632823365, 12)
+  })
+
+  it('calculates long-period returns from one normalized point per trading day', async () => {
+    vi.setSystemTime(new Date('2026-05-07T15:00:00.000Z'))
+    const iolFetch = vi.fn().mockResolvedValue([
+      { fechaHora: '2021-05-07T17:00:00', ultimoPrecio: 100 },
+      { fechaHora: '2022-05-17T11:00:00', ultimoPrecio: 140, volumenNominal: 10 },
+      { fechaHora: '2022-05-17T17:00:00', ultimoPrecio: 150, volumenNominal: 20 },
+      { fechaHora: '2026-05-07T17:00:00', ultimoPrecio: 200 },
+    ])
+    const { getOrCreateHistoryResponse } = await loadHistoryService(iolFetch)
+    const response = await getOrCreateHistoryResponse('ALUA', 'bCBA', '5Y')
+
+    expect(response.data).toHaveLength(3)
+    expect(response.data.filter((point) => point.date === '2022-05-17')).toEqual([
+      expect.objectContaining({ close: 150, volume: 20 }),
+    ])
+    expect(
+      selectPerformanceWindow(response.data, '5Y').returnPercentage
+    ).toBeCloseTo(100, 12)
+  })
+
   it.each([false, true])('propagates separate counters through fresh, cached and stale responses (invalid=%s)', async (withInvalid) => {
     const rows: unknown[] = [
       { fechaHora: '2026-05-07T17:00:00', ultimoPrecio: 102 },
@@ -61,12 +106,41 @@ describe('historyService', () => {
     expect(fresh.data[0].close).toBe(102)
     const cached = await getOrCreateHistoryResponse('ALUA', 'bCBA', '5Y')
     expect(cached).toMatchObject({ cacheStatus: 'memory-cache', meta: counts })
-    const logger = withInvalid ? warn : info
-    expect(logger).toHaveBeenCalledWith(withInvalid ? '[history.normalize.partial]' : '[history.normalize.consolidated]', expect.objectContaining({ ...counts, symbol: 'ALUA', market: 'bCBA', range: '5Y', variant: 'ajustada' }))
-    if (!withInvalid) expect(warn).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(
+      withInvalid
+        ? '[history.normalize.partial]'
+        : '[history.normalize.anomaly]',
+      expect.objectContaining({
+        ...counts,
+        conflictingDuplicates: 1,
+        duplicateRatio: 1,
+        duplicateTradingDays: 1,
+        maxMultiplicity: 2,
+        provider: 'iol',
+        recordsFetched: withInvalid ? 3 : 2,
+        requestCount: 1,
+        symbol: 'ALUA',
+        market: 'bCBA',
+        range: '5Y',
+        variant: 'ajustada',
+      })
+    )
+    expect(info).toHaveBeenCalled()
     const { observabilityTestExports } = await import('@/lib/server/core/observability')
     const counters = observabilityTestExports.getObservabilitySnapshot().counters
-    expect(counters).toContainEqual(expect.objectContaining({ name: 'history.duplicate_points.total', value: 1, tags: { market: 'bCBA', range: '5Y', variant: 'ajustada' } }))
+    expect(counters).toContainEqual(expect.objectContaining({
+      name: 'history.duplicate_points.total',
+      value: 1,
+      tags: expect.objectContaining({
+        market: 'bCBA', provider: 'iol', range: '5Y', variant: 'ajustada',
+      }),
+    }))
+    expect(counters).toContainEqual(expect.objectContaining({
+      name: 'history.conflicting_duplicate_points.total', value: 1,
+    }))
+    expect(counters).toContainEqual(expect.objectContaining({
+      name: 'history.normalization_anomaly.total', value: 1,
+    }))
     if (withInvalid) expect(counters).toContainEqual(expect.objectContaining({ name: 'history.invalid_points.total', value: 1 }))
     else expect(counters.some(counter => counter.name === 'history.invalid_points.total')).toBe(false)
     vi.setSystemTime(new Date('2026-05-07T15:05:01Z'))
@@ -75,9 +149,9 @@ describe('historyService', () => {
   })
 
   it.each([
-    ['1W', '2026-04-30'], ['1M', '2026-04-06'],
-    ['3M', '2026-02-03'], ['6M', '2025-11-02'],
-    ['1Y', '2025-05-07'], ['3Y', '2023-05-08'], ['5Y', '2021-05-08'],
+    ['1W', '2026-04-16'], ['1M', '2026-03-24'],
+    ['3M', '2026-01-24'], ['6M', '2025-10-24'],
+    ['1Y', '2025-04-23'], ['3Y', '2023-04-23'], ['5Y', '2021-04-23'],
   ] as const)('requests the expected date period for %s', async (range, start) => {
     const iolFetch = vi.fn().mockResolvedValue([{ fecha: '2026-05-07', ultimoPrecio: 101 }])
     const { getOrCreateHistoryResponse } = await loadHistoryService(iolFetch)
@@ -192,6 +266,7 @@ describe('historyService', () => {
   })
 
   it('preserves an unadjusted variant through fresh cache hits', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
     const iolFetch = vi
       .fn()
       .mockResolvedValueOnce([])
@@ -207,6 +282,20 @@ describe('historyService', () => {
       meta: { resolvedVariant: 'sinAjustar', stale: false },
     })
     expect(iolFetch).toHaveBeenCalledTimes(2)
+    expect(info).toHaveBeenCalledWith(
+      '[stock-history]',
+      expect.objectContaining({
+        args: [
+          'selected-variant',
+          expect.objectContaining({
+            provider: 'iol',
+            recordsFetched: 1,
+            requestCount: 2,
+            servedTradingDays: 1,
+          }),
+        ],
+      })
+    )
   })
 
   it('preserves an unadjusted variant through stale fallback', async () => {
