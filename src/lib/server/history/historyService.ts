@@ -14,6 +14,7 @@ import {
 } from '@/lib/server/upstream/iol'
 import { createHistoryResponse } from '@/lib/server/history/historyResponse'
 import {
+  deriveStockHistoryDailyPerformance,
   normalizeStockHistoryDataResult,
   StockHistoryNormalizationError,
   type StockHistoryMarket,
@@ -290,13 +291,13 @@ async function fetchHistoryResponse(
         2
       )
     }
-    const selectedWindow = selectPerformanceWindow(
-      result.normalizedData,
-      range
+    const derivedData = deriveStockHistoryDailyPerformance(
+      result.normalizedData
     )
+    const selectedWindow = selectPerformanceWindow(derivedData, range)
     const normalizedData = selectedWindow.start
       ? selectedWindow.points
-      : result.normalizedData
+      : derivedData
     const fetchedAt = new Date().toISOString()
     incrementMetricCounter('history.variant.selected.total', 1, {
       market,

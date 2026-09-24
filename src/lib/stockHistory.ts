@@ -1,4 +1,8 @@
 import { parseFinancialNumber as toFiniteNumber } from '@/lib/financialNumber'
+import {
+  calculateDailyVariationPercentage,
+  isSuspiciousPriceTransition,
+} from '@/lib/marketPerformance'
 import { parseStockHistoryCalendarDate } from '@/lib/stockHistoryDate'
 
 export class StockHistoryNormalizationError extends Error {
@@ -510,6 +514,43 @@ export interface StockHistoryNormalizationDiagnostics {
   omittedTradingDays: number
   recordsFetched: number
   validRecords: number
+}
+
+/**
+ * Replaces provider performance fields using adjacent consolidated sessions.
+ * The input must already contain one point per trading day in ascending order.
+ */
+export function deriveStockHistoryDailyPerformance(
+  points: readonly StockHistoryPoint[]
+): StockHistoryPoint[] {
+  const derivedPoints = points.map((point) => {
+    const sanitizedPoint = { ...point }
+
+    delete sanitizedPoint.dailyVariation
+    delete sanitizedPoint.previousClose
+
+    return sanitizedPoint
+  })
+
+  for (let index = 1; index < derivedPoints.length; index += 1) {
+    const previous = derivedPoints[index - 1]
+    const current = derivedPoints[index]
+
+    current.previousClose = previous.close
+
+    if (!isSuspiciousPriceTransition(previous, current)) {
+      const dailyVariation = calculateDailyVariationPercentage(
+        previous.close,
+        current.close
+      )
+
+      if (dailyVariation !== null) {
+        current.dailyVariation = dailyVariation
+      }
+    }
+  }
+
+  return derivedPoints
 }
 
 type DailyHistorySelection = {

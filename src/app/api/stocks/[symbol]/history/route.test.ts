@@ -417,6 +417,8 @@ describe('/api/stocks/[symbol]/history route', () => {
         date: '2026-05-08',
         timestamp: '2026-05-08T17:00:00',
         close: 110,
+        previousClose: 101,
+        dailyVariation: expect.closeTo(8.9108910891, 10),
       },
     ])
     expect(body.meta).toMatchObject({

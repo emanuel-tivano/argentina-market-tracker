@@ -46,6 +46,94 @@ function upstreamHttpError(status: number): IolUpstreamHttpError {
 }
 
 describe('historyService', () => {
+  it('derives served daily performance before trimming the reference margin', async () => {
+    vi.setSystemTime(new Date('2026-09-23T15:00:00.000Z'))
+    const iolFetch = vi.fn().mockResolvedValue([
+      {
+        fecha: '2026-03-10',
+        ultimoPrecio: 5000,
+        variacion: 77,
+        cierreAnterior: 1,
+      },
+      {
+        fecha: '2026-03-23',
+        ultimoPrecio: 5100,
+        variacion: 0,
+        cierreAnterior: 0,
+      },
+      {
+        fecha: '2026-09-21',
+        ultimoPrecio: 6680,
+        variacion: 0,
+        cierreAnterior: 0,
+      },
+      {
+        fechaHora: '2026-09-22T11:00:00',
+        ultimoPrecio: 6500,
+        variacion: 50,
+        cierreAnterior: 1,
+      },
+      {
+        fechaHora: '2026-09-22T17:00:00',
+        ultimoPrecio: 6640,
+        variacion: 50,
+        cierreAnterior: 1,
+        apertura: 6675,
+        maximo: 6690,
+        minimo: 6600,
+        volumenNominal: 1100,
+        montoOperado: 7304000,
+      },
+      {
+        fecha: '2026-09-23',
+        ultimoPrecio: 6445,
+        variacion: 0,
+        cierreAnterior: 0,
+      },
+    ])
+    const { getOrCreateHistoryResponse } = await loadHistoryService(iolFetch)
+    const response = await getOrCreateHistoryResponse('GGAL', 'bCBA', '6M')
+
+    expect(iolFetch).toHaveBeenCalledExactlyOnceWith(
+      '/api/v2/bCBA/Titulos/GGAL/Cotizacion/seriehistorica/2026-03-09/2026-09-23/ajustada'
+    )
+    expect(response.data.map((point) => point.date)).toEqual([
+      '2026-03-23',
+      '2026-09-21',
+      '2026-09-22',
+      '2026-09-23',
+    ])
+    expect(response.data[0]).toMatchObject({
+      date: '2026-03-23',
+      previousClose: 5000,
+    })
+    expect(response.data[0].dailyVariation).toBeCloseTo(2, 12)
+    expect(response.data[2]).toMatchObject({
+      date: '2026-09-22',
+      timestamp: '2026-09-22T17:00:00',
+      close: 6640,
+      previousClose: 6680,
+      open: 6675,
+      high: 6690,
+      low: 6600,
+      volume: 1100,
+      amountTraded: 7304000,
+    })
+    expect(response.data[2].dailyVariation).toBeCloseTo(-0.5988023952, 10)
+    expect(response.data[3]).toMatchObject({
+      date: '2026-09-23',
+      close: 6445,
+      previousClose: 6640,
+    })
+    expect(response.data[3].dailyVariation).toBeCloseTo(-2.936746988, 10)
+    expect(response.meta).toMatchObject({
+      invalidPoints: 0,
+      duplicatePoints: 1,
+      discardedPoints: 1,
+      totalPoints: 4,
+    })
+  })
+
   it('anchors PAMP 1Y to the last available close instead of the server clock', async () => {
     vi.setSystemTime(new Date('2026-09-18T15:00:00.000Z'))
     const iolFetch = vi.fn().mockResolvedValue([

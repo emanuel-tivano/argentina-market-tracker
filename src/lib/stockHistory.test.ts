@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildStockHistoryApiPath,
+  deriveStockHistoryDailyPerformance,
   STOCK_HISTORY_RANGES,
   isStockHistoryPoint,
   isStockHistoryRange,
@@ -9,6 +10,148 @@ import {
 } from './stockHistory'
 
 describe('stock history normalization', () => {
+  it('derives daily performance from consecutive consolidated closes', () => {
+    const raw = [
+      {
+        fecha: '2026-09-21',
+        ultimoPrecio: 6680,
+        variacion: 0,
+        cierreAnterior: 0,
+        apertura: 6700,
+        maximo: 6750,
+        minimo: 6650,
+        volumenNominal: 1000,
+        montoOperado: 6680000,
+      },
+      {
+        fecha: '2026-09-22',
+        ultimoPrecio: 6640,
+        variacion: 99,
+        cierreAnterior: 1234,
+        apertura: 6675,
+        maximo: 6690,
+        minimo: 6600,
+        volumenNominal: 1100,
+        montoOperado: 7304000,
+      },
+      {
+        fecha: '2026-09-23',
+        ultimoPrecio: 6445,
+        variacion: 0,
+        cierreAnterior: 0,
+        apertura: 6600,
+        maximo: 6620,
+        minimo: 6400,
+        volumenNominal: 1200,
+        montoOperado: 7734000,
+      },
+    ]
+    const normalized = normalizeStockHistoryDataResult(raw)
+    const result = deriveStockHistoryDailyPerformance(normalized.data)
+
+    expect(result[0]).not.toHaveProperty('previousClose')
+    expect(result[0]).not.toHaveProperty('dailyVariation')
+    expect(result[1]).toMatchObject({
+      date: '2026-09-22',
+      close: 6640,
+      previousClose: 6680,
+      open: 6675,
+      high: 6690,
+      low: 6600,
+      volume: 1100,
+      amountTraded: 7304000,
+    })
+    expect(result[1].dailyVariation).toBeCloseTo(-0.5988023952, 10)
+    expect(result[2]).toMatchObject({
+      date: '2026-09-23',
+      close: 6445,
+      previousClose: 6640,
+    })
+    expect(result[2].dailyVariation).toBeCloseTo(-2.936746988, 10)
+    const withoutPerformance = (point: (typeof result)[number]) => {
+      const sanitizedPoint = { ...point }
+
+      delete sanitizedPoint.dailyVariation
+      delete sanitizedPoint.previousClose
+
+      return sanitizedPoint
+    }
+    expect(result.map(withoutPerformance)).toEqual(
+      normalized.data.map(withoutPerformance)
+    )
+    expect(normalized).toMatchObject({
+      invalidPoints: 0,
+      duplicatePoints: 0,
+      discardedPoints: 0,
+      totalPoints: 3,
+    })
+  })
+
+  it('derives only after selecting the definitive snapshot for each day', () => {
+    const raw = [
+      { fechaHora: '2026-09-21T17:00:00', ultimoPrecio: 100 },
+      { fechaHora: '2026-09-22T11:00:00', ultimoPrecio: 105 },
+      { fechaHora: '2026-09-22T17:00:00', ultimoPrecio: 110 },
+      { fechaHora: '2026-09-23T17:00:00', ultimoPrecio: 121 },
+    ]
+    const derive = (input: typeof raw) => {
+      const normalized = normalizeStockHistoryDataResult(input)
+
+      return {
+        ...normalized,
+        data: deriveStockHistoryDailyPerformance(normalized.data),
+      }
+    }
+    const result = derive(raw)
+
+    expect(result).toEqual(derive([...raw].reverse()))
+    expect(result).toMatchObject({
+      data: [
+        { date: '2026-09-21', close: 100 },
+        {
+          date: '2026-09-22',
+          close: 110,
+          previousClose: 100,
+        },
+        {
+          date: '2026-09-23',
+          close: 121,
+          previousClose: 110,
+        },
+      ],
+      invalidPoints: 0,
+      duplicatePoints: 1,
+      discardedPoints: 1,
+      totalPoints: 3,
+    })
+    expect(result.data[1].dailyVariation).toBeCloseTo(10, 12)
+    expect(result.data[2].dailyVariation).toBeCloseTo(10, 12)
+  })
+
+  it('fails closed on suspicious adjacent-session price transitions', () => {
+    const result = deriveStockHistoryDailyPerformance([
+      {
+        date: '2026-09-22',
+        close: 100,
+        dailyVariation: 7,
+        previousClose: 90,
+      },
+      {
+        date: '2026-09-23',
+        close: 200,
+        dailyVariation: 100,
+        previousClose: 100,
+      },
+    ])
+
+    expect(result[0]).toEqual({ date: '2026-09-22', close: 100 })
+    expect(result[1]).toEqual({
+      date: '2026-09-23',
+      close: 200,
+      previousClose: 100,
+    })
+  })
+
   it('separates invalid rows from duplicate valid snapshots and chooses the latest time', () => {
     const latest = { fechaHora: '2022-05-17T17:00:03.007', ultimoPrecio: 100, apertura: 98, maximo: 102, minimo: 97, volumenNominal: 800, montoOperado: 80000 }
     const early = {
