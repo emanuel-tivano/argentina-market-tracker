@@ -147,10 +147,11 @@ describe('/api/stocks/[symbol]/quote route', () => {
         symbol: 'GGAL',
         price: 100,
         description: 'Grupo Financiero Galicia',
+        volume: 12345,
       },
     })
     expect(iolFetch).toHaveBeenCalledWith(
-      '/api/v2/bCBA/Titulos/GGAL/CotizacionDetalle'
+      '/api/v2/bCBA/Titulos/GGAL/Cotizacion?mercado=bcba&simbolo=GGAL&model.simbolo=GGAL&model.mercado=bCBA&model.plazo=t1'
     )
   })
 
@@ -185,7 +186,7 @@ describe('/api/stocks/[symbol]/quote route', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ symbol: 'GGAL' })
     expect(iolFetch).toHaveBeenCalledWith(
-      '/api/v2/bCBA/Titulos/GGAL/CotizacionDetalle'
+      '/api/v2/bCBA/Titulos/GGAL/Cotizacion?mercado=bcba&simbolo=GGAL&model.simbolo=GGAL&model.mercado=bCBA&model.plazo=t1'
     )
   })
 

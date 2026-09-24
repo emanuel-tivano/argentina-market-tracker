@@ -7,7 +7,7 @@ import {
   iolFetch,
   isRecoverableIolUpstreamError,
 } from '@/lib/server/upstream/iol'
-import { getQuoteDetailEndpoint } from '@/lib/server/upstream/quoteEndpoint'
+import { getQuoteT1Endpoint } from '@/lib/server/upstream/quoteEndpoint'
 import {
   getCachedStockQuoteResponse,
   getOrCreateInFlightStockQuoteRequest,
@@ -71,8 +71,8 @@ async function fetchStockQuoteResponse(
       : null
   }
 
-  const payload = await iolFetch(getQuoteDetailEndpoint(market, symbol))
-  const data = normalizeStockQuoteDetail(payload, symbol)
+  const payload = await iolFetch(getQuoteT1Endpoint(market, symbol))
+  const data = normalizeStockQuoteDetail(payload, symbol, market)
 
   if (!hasMatchingStockQuoteIdentity(data, symbol, market)) {
     throw new StockQuoteNormalizationError(

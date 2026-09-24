@@ -1,6 +1,6 @@
 import 'server-only'
 import { ENV } from '@/lib/server/core/env'
-import { buildUpstreamUrl } from '@/lib/server/core/serverUrl'
+import { buildUpstreamRequestUrl } from '@/lib/server/core/serverUrl'
 import {
   extractUpstreamErrorSummary,
   incrementMetricCounter,
@@ -164,7 +164,7 @@ export function isRecoverableIolUpstreamError(
  * Construye un URL absoluto a partir de ENV.API_URL.
  */
 function buildUrl(path: string, variableName = 'UPSTREAM_ENDPOINT'): string {
-  return buildUpstreamUrl(ENV.API_URL, variableName, path)
+  return buildUpstreamRequestUrl(ENV.API_URL, variableName, path)
 }
 
 /**

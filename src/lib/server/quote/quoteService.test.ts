@@ -135,6 +135,35 @@ describe('quoteService upstream protection and cache ordering', () => {
     process.env = OLD_ENV
   })
 
+  it('uses Cotizacion T1 once and fills omitted provider identity from the request', async () => {
+    const iolFetch = vi.fn().mockResolvedValue(
+      quotePayload({
+        simbolo: undefined,
+        mercado: undefined,
+        volumenNominal: 1815042,
+      })
+    )
+    const { limits, service } = await loadService(iolFetch)
+
+    await expect(
+      service.getStockQuoteResponse('ggal', 'bCBA', context)
+    ).resolves.toMatchObject({
+      cacheStatus: 'fresh',
+      response: {
+        source: 'live',
+        data: {
+          symbol: 'GGAL',
+          market: 'bCBA',
+          volume: 1815042,
+        },
+      },
+    })
+    expect(iolFetch).toHaveBeenCalledExactlyOnceWith(
+      '/api/v2/bCBA/Titulos/GGAL/Cotizacion?mercado=bcba&simbolo=GGAL&model.simbolo=GGAL&model.mercado=bCBA&model.plazo=t1'
+    )
+    await expectUpstreamBudgetCount(limits, 1)
+  })
+
   it('serves a fresh positive cache hit without consuming upstream budget', async () => {
     const iolFetch = vi.fn()
     const { cache, limits, service } = await loadService(iolFetch)

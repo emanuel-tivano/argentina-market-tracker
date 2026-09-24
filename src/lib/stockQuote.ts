@@ -135,7 +135,8 @@ function normalizeDepthLevel(value: unknown): StockQuoteDepthLevel | null {
 
 export function normalizeStockQuoteDetail(
   value: unknown,
-  fallbackSymbol = ''
+  fallbackSymbol = '',
+  fallbackMarket = ''
 ): StockQuoteDetail {
   if (!isRecord(value)) {
     throw new StockQuoteNormalizationError(
@@ -145,6 +146,7 @@ export function normalizeStockQuoteDetail(
 
   const price = finiteNumber(value.ultimoPrecio)
   const symbol = optionalString(value.simbolo) ?? fallbackSymbol.trim().toUpperCase()
+  const market = optionalString(value.mercado) ?? fallbackMarket.trim()
 
   if (price === null || price <= 0 || !symbol) {
     throw new StockQuoteNormalizationError(
@@ -165,7 +167,7 @@ export function normalizeStockQuoteDetail(
 
   return {
     symbol,
-    market: optionalString(value.mercado) ?? '',
+    market,
     description: optionalString(value.descripcionTitulo) ?? symbol,
     price,
     variation: calculatedVariation ?? finiteNumber(value.variacion),

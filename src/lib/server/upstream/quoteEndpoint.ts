@@ -12,6 +12,22 @@ export function getQuoteEndpoint(market: string, symbol: string): string {
   )}/Cotizacion`
 }
 
+export function getQuoteT1Endpoint(market: string, symbol: string): string {
+  const normalizedMarket = normalizeQuoteMarket(market)
+  const normalizedSymbol = symbol.trim().toUpperCase()
+  const params = new URLSearchParams({
+    mercado: normalizedMarket.toLowerCase(),
+    simbolo: normalizedSymbol,
+    'model.simbolo': normalizedSymbol,
+    'model.mercado': normalizedMarket,
+    'model.plazo': 't1',
+  })
+
+  return `/api/v2/${encodeURIComponent(normalizedMarket)}/Titulos/${encodeURIComponent(
+    normalizedSymbol
+  )}/Cotizacion?${params.toString()}`
+}
+
 export function getQuoteDetailEndpoint(
   market: string,
   symbol: string

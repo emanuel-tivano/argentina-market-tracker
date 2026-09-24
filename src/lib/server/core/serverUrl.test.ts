@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 
 import {
+  buildUpstreamRequestUrl,
   buildUpstreamUrl,
   normalizeServerUrl,
   normalizeUpstreamRelativePath,
@@ -202,5 +203,36 @@ describe('upstream relative paths', () => {
     expect(url).toBe('https://api.example.com/base/v2/panel/lider')
     expect(new URL(url).origin).toBe('https://api.example.com')
     expect(new URL(url).pathname.startsWith('/base/v2/')).toBe(true)
+  })
+
+  it('allows a canonical query on an internal upstream request URL', () => {
+    const url = buildUpstreamRequestUrl(
+      'https://api.example.com/base/v2',
+      'UPSTREAM_ENDPOINT',
+      '/api/v2/bCBA/Titulos/GGAL/Cotizacion?mercado=bcba&simbolo=GGAL&model.simbolo=GGAL&model.mercado=bCBA&model.plazo=t1'
+    )
+
+    expect(url).toBe(
+      'https://api.example.com/base/v2/api/v2/bCBA/Titulos/GGAL/Cotizacion?mercado=bcba&simbolo=GGAL&model.simbolo=GGAL&model.mercado=bCBA&model.plazo=t1'
+    )
+    expect(new URL(url).origin).toBe('https://api.example.com')
+  })
+
+  it.each([
+    '/quote?',
+    '/quote?model.plazo=t1#fragment',
+    '/quote?model.plazo=t1\\extra',
+    '/quote?model.plazo=t1 extra',
+    '/quote?model.plazo=t1?next=value',
+    '/quote?=value',
+    '/quote?symbol=%2f',
+  ])('rejects a non-canonical or unsafe request query %j', (value) => {
+    expect(() =>
+      buildUpstreamRequestUrl(
+        'https://api.example.com/base/v2',
+        'UPSTREAM_ENDPOINT',
+        value
+      )
+    ).toThrow('UPSTREAM_ENDPOINT')
   })
 })

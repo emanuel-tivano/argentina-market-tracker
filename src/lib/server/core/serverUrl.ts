@@ -107,6 +107,49 @@ export function buildUpstreamUrl(
   return resolved.toString()
 }
 
+export function buildUpstreamRequestUrl(
+  apiBaseUrl: string,
+  variableName: string,
+  relativeUrl: string
+): string {
+  const queryIndex = relativeUrl.indexOf('?')
+
+  if (queryIndex === -1) {
+    return buildUpstreamUrl(apiBaseUrl, variableName, relativeUrl)
+  }
+
+  const relativePath = relativeUrl.slice(0, queryIndex)
+  const query = relativeUrl.slice(queryIndex + 1)
+
+  if (
+    !query ||
+    query.includes('?') ||
+    query.includes('#') ||
+    query.includes('\\') ||
+    /\s/.test(query) ||
+    CONTROL_CHARACTER_PATTERN.test(query)
+  ) {
+    invalidUpstreamPath(variableName)
+  }
+
+  const params = new URLSearchParams(query)
+  const normalizedQuery = params.toString()
+
+  if (
+    normalizedQuery !== query ||
+    [...params.keys()].some((key) => !key)
+  ) {
+    invalidUpstreamPath(variableName)
+  }
+
+  const resolved = new URL(
+    buildUpstreamUrl(apiBaseUrl, variableName, relativePath)
+  )
+  resolved.search = normalizedQuery
+
+  return resolved.toString()
+}
+
 export function isLoopbackHostname(hostname: string): boolean {
   return (
     hostname === 'localhost' ||

@@ -233,6 +233,28 @@ describe('iol server client', () => {
     )
   })
 
+  it('preserves a canonical query on an authenticated upstream request', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({ access_token: 'fresh-token', expires_in: 1800 })
+        )
+        .mockResolvedValueOnce(jsonResponse({ ok: true }))
+    )
+
+    await expect(
+      iol(
+        '/api/v2/bCBA/Titulos/GGAL/Cotizacion?mercado=bcba&simbolo=GGAL&model.simbolo=GGAL&model.mercado=bCBA&model.plazo=t1'
+      )
+    ).resolves.toEqual({ ok: true })
+
+    expect(getFetchCall(1)[0]).toBe(
+      'https://api.example.test/api/v2/bCBA/Titulos/GGAL/Cotizacion?mercado=bcba&simbolo=GGAL&model.simbolo=GGAL&model.mercado=bCBA&model.plazo=t1'
+    )
+  })
+
   it('reuses a cached token while it is still valid', async () => {
     vi.stubGlobal(
       'fetch',

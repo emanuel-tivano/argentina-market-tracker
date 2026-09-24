@@ -5,6 +5,49 @@ import {
 } from './stockQuote'
 
 describe('stockQuote', () => {
+  it('normalizes Cotizacion T1 with requested identity fallbacks and nominal volume', () => {
+    const detail = normalizeStockQuoteDetail(
+      {
+        ultimoPrecio: 5100,
+        variacion: -1.25,
+        apertura: 5200,
+        maximo: 5205,
+        minimo: 5080,
+        fechaHora: '2026-09-24T16:34:32-03:00',
+        cierreAnterior: 5165,
+        montoOperado: 3916378045,
+        volumenNominal: 761696,
+        cantidadOperaciones: 3079,
+        descripcionTitulo: 'Pampa Energía',
+        plazo: 'T1',
+        laminaMinima: 1,
+        lote: 1,
+      },
+      'PAMP',
+      'bCBA'
+    )
+
+    expect(detail).toMatchObject({
+      symbol: 'PAMP',
+      market: 'bCBA',
+      description: 'Pampa Energía',
+      price: 5100,
+      open: 5200,
+      high: 5205,
+      low: 5080,
+      timestamp: '2026-09-24T16:34:32-03:00',
+      previousClose: 5165,
+      amountTraded: 3916378045,
+      volume: 761696,
+      operationCount: 3079,
+      settlement: 'T1',
+      minimumSheet: 1,
+      lot: 1,
+      minimumQuantity: null,
+    })
+    expect(detail.variation).toBeCloseTo(-1.2584704743, 10)
+  })
+
   it('normalizes CotizacionDetalle and preserves every depth row and zero', () => {
     const detail = normalizeStockQuoteDetail(
       {
