@@ -127,7 +127,7 @@ describe('normalizePanelData', () => {
     ).toThrow('Upstream payload contains no valid items')
   })
 
-  it('keeps optional numeric fields missing without failing the row', () => {
+  it('keeps optional numeric fields missing without deriving panel variation', () => {
     expect(
       normalizePanelData([
         {
@@ -144,13 +144,50 @@ describe('normalizePanelData', () => {
         simbolo: 'PAMP',
         descripcion: 'Pampa Energia',
         ultimoPrecio: 123.45,
-        variacionPorcentual: 1.1885245901639419,
         maximo: 130,
         ultimoCierre: 122,
         volumen: 1000,
       },
     ])
   })
+
+  it.each([
+    {
+      symbol: 'ALUA',
+      ultimoPrecio: 841.5,
+      ultimoCierre: 841.5,
+      variacionPorcentual: -0.06,
+    },
+    {
+      symbol: 'CEPU',
+      ultimoPrecio: '2038',
+      ultimoCierre: '2038',
+      variacionPorcentual: '0.64',
+    },
+  ])(
+    'preserves the upstream panel variation for $symbol when ultimoCierre equals ultimoPrecio',
+    ({ symbol, ultimoPrecio, ultimoCierre, variacionPorcentual }) => {
+      expect(
+        normalizePanelData([
+          {
+            simbolo: symbol,
+            descripcion: symbol,
+            ultimoPrecio,
+            ultimoCierre,
+            variacionPorcentual,
+          },
+        ])
+      ).toEqual([
+        {
+          simbolo: symbol,
+          descripcion: symbol,
+          ultimoPrecio: Number(ultimoPrecio),
+          ultimoCierre: Number(ultimoCierre),
+          variacionPorcentual: Number(variacionPorcentual),
+        },
+      ])
+    }
+  )
 
   it('preserves three-decimal prices and percentages while grouping quantities', () => {
     const payload = {

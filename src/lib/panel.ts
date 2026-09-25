@@ -295,15 +295,6 @@ function parsePanelTitulo(value: unknown): NormalizePanelTituloResult {
   setFiniteNumber(item, 'laminaMinima', value.laminaMinima)
   setFiniteNumber(item, 'lote', value.lote)
 
-  const calculatedVariation = calculateDailyVariationPercentage(
-    item.ultimoCierre,
-    item.ultimoPrecio
-  )
-
-  if (calculatedVariation !== null) {
-    item.variacionPorcentual = calculatedVariation
-  }
-
   if (!isOptionalStringInput(value.fechaHora)) {
     return { ok: false, reason: 'INVALID_TIMESTAMP' }
   }
