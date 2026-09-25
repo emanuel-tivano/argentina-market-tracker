@@ -2,7 +2,6 @@ import { toMarketDateString } from '@/features/dashboard/charts/advancedStockCha
 import { type StockHistoryPoint } from '@/lib/stockHistory'
 import { parseStockHistoryCalendarDate } from '@/lib/stockHistoryDate'
 import { type ResolvedCurrentQuote } from './currentQuoteTypes'
-import { mergeLiveQuoteIntoHistoricalSeries } from './liveSessionCandle'
 
 export type SyncedHistoryWithQuoteResult = {
   points: StockHistoryPoint[]
@@ -11,11 +10,13 @@ export type SyncedHistoryWithQuoteResult = {
 }
 
 type SyncHistoryWithQuoteOptions = {
-  now?: Date
   quoteSource?: 'demo' | 'live' | null
 }
 
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires'
+const EXPLICIT_TIME_ZONE_PATTERN = /(?:Z|[+-]\d{2}:\d{2})$/i
+const MARKET_LOCAL_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?$/
 
 function finiteNumber(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -39,8 +40,30 @@ function marketDateFromTimestamp(value: string | null): string | null {
     return calendarDate.date
   }
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
+  const datePrefix = trimmedValue.slice(0, 10)
+  const prefixedCalendarDate = parseStockHistoryCalendarDate(datePrefix)
+
+  if (!prefixedCalendarDate) {
     return null
+  }
+
+  // A timestamp without an offset has no absolute instant to convert. Treat it
+  // as a market-local wall clock so the browser timezone cannot move its date.
+  if (!EXPLICIT_TIME_ZONE_PATTERN.test(trimmedValue)) {
+    const localTimestamp = MARKET_LOCAL_TIMESTAMP_PATTERN.exec(trimmedValue)
+    const hour = Number(localTimestamp?.[1])
+    const minute = Number(localTimestamp?.[2])
+    const second = Number(localTimestamp?.[3] ?? 0)
+
+    return localTimestamp &&
+      hour >= 0 &&
+      hour <= 23 &&
+      minute >= 0 &&
+      minute <= 59 &&
+      second >= 0 &&
+      second <= 59
+      ? prefixedCalendarDate.date
+      : null
   }
 
   const parsedDate = new Date(trimmedValue)
@@ -87,42 +110,37 @@ function getLatestHistoryDate(pointsByDate: Map<string, StockHistoryPoint>) {
   return [...pointsByDate.keys()].sort().at(-1) ?? null
 }
 
-function canAppendQuotePoint(currentQuote: ResolvedCurrentQuote): boolean {
-  return (
-    positivePrice(currentQuote.open) !== null &&
-    positivePrice(currentQuote.high) !== null &&
-    positivePrice(currentQuote.low) !== null
-  )
+type CompleteQuoteOhlc = {
+  open: number
+  high: number
+  low: number
+}
+
+function getCompleteQuoteOhlc(
+  currentQuote: ResolvedCurrentQuote
+): CompleteQuoteOhlc | null {
+  const open = positivePrice(currentQuote.open)
+  const high = positivePrice(currentQuote.high)
+  const low = positivePrice(currentQuote.low)
+
+  return open !== null && high !== null && low !== null
+    ? { open, high, low }
+    : null
 }
 
 function applyQuoteToHistoryPoint(
   existingPoint: StockHistoryPoint | undefined,
   quoteDate: string,
-  currentQuote: ResolvedCurrentQuote
+  currentQuote: ResolvedCurrentQuote,
+  quoteOhlc: CompleteQuoteOhlc
 ): StockHistoryPoint {
   const price = currentQuote.price as number
-  const open =
-    positivePrice(existingPoint?.open) ??
-    positivePrice(currentQuote.open) ??
-    price
-  const highCandidates = [
-    positivePrice(existingPoint?.high),
-    positivePrice(currentQuote.high),
-    price,
-  ].filter((value): value is number => value !== null)
-  const lowCandidates = [
-    positivePrice(existingPoint?.low),
-    positivePrice(currentQuote.low),
-    price,
-  ].filter((value): value is number => value !== null)
 
   return {
     ...existingPoint,
     date: quoteDate,
     ...(currentQuote.timestamp ? { timestamp: currentQuote.timestamp } : {}),
-    open,
-    high: Math.max(...highCandidates),
-    low: Math.min(...lowCandidates),
+    ...quoteOhlc,
     close: price,
     ...(currentQuote.volume !== null ? { volume: currentQuote.volume } : {}),
   }
@@ -133,23 +151,6 @@ export function syncHistoryWithCurrentQuote(
   currentQuote: ResolvedCurrentQuote,
   options: SyncHistoryWithQuoteOptions = {}
 ): SyncedHistoryWithQuoteResult {
-  if (options.quoteSource === 'live') {
-    const merged = mergeLiveQuoteIntoHistoricalSeries(
-      historicalSeries,
-      currentQuote,
-      {
-        now: options.now ?? new Date(),
-        quoteSource: 'live',
-      }
-    )
-
-    return {
-      points: merged.points,
-      syncedAt: merged.liveSessionCandle?.timestamp ?? null,
-      syncedQuote: merged.liveSessionCandle !== null,
-    }
-  }
-
   const pointsByDate = cloneDedupedHistoryByDate(historicalSeries)
   const originalPoints = sortHistoryPoints(pointsByDate.values())
   const quotePrice = positivePrice(currentQuote.price)
@@ -179,6 +180,7 @@ export function syncHistoryWithCurrentQuote(
   }
 
   const existingPoint = pointsByDate.get(quoteDate)
+  const quoteOhlc = getCompleteQuoteOhlc(currentQuote)
 
   if (options.quoteSource === 'demo' && !existingPoint) {
     return {
@@ -188,7 +190,7 @@ export function syncHistoryWithCurrentQuote(
     }
   }
 
-  if (!existingPoint && !canAppendQuotePoint(currentQuote)) {
+  if (!quoteOhlc) {
     return {
       points: originalPoints,
       syncedAt: null,
@@ -198,10 +200,15 @@ export function syncHistoryWithCurrentQuote(
 
   pointsByDate.set(
     quoteDate,
-    applyQuoteToHistoryPoint(existingPoint, quoteDate, {
-      ...currentQuote,
-      price: quotePrice,
-    })
+    applyQuoteToHistoryPoint(
+      existingPoint,
+      quoteDate,
+      {
+        ...currentQuote,
+        price: quotePrice,
+      },
+      quoteOhlc
+    )
   )
 
   return {

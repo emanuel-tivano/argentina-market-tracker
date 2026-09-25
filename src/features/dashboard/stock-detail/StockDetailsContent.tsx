@@ -93,7 +93,6 @@ function HistorySection({
   const syncedHistory = useMemo(
     () =>
       syncHistoryWithCurrentQuote(history.points, currentQuote, {
-        now: new Date(),
         quoteSource,
       }),
     [currentQuote, history.points, quoteSource]

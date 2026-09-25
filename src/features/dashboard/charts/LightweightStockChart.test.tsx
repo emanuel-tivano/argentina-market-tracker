@@ -133,6 +133,23 @@ describe('LightweightStockChart', () => {
     ])
   })
 
+  it('renders a synchronized current market date as the final line point', () => {
+    render(
+      <LightweightStockChart
+        symbol="ALUA"
+        points={[
+          { date: '2026-09-23', close: 852 },
+          { date: '2026-09-24', close: 841.5 },
+        ]}
+      />
+    )
+
+    expect(chartMocks.setData).toHaveBeenCalledWith([
+      { time: timestamp('2026-09-23'), value: 852 },
+      { time: timestamp('2026-09-24'), value: 841.5 },
+    ])
+  })
+
   it('passes server-normalized unique dates directly to the chart library', () => {
     const normalized = normalizeStockHistoryDataResult([
       { fechaHora: '2026-05-07T11:00:00', ultimoPrecio: 101 },

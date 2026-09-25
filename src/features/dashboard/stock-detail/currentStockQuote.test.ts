@@ -369,7 +369,8 @@ describe('syncHistoryWithCurrentQuote', () => {
     )
     const result = syncHistoryWithCurrentQuote(
       [{ date: '2026-06-24', open: 991, high: 996, low: 989, close: 993.5 }],
-      currentQuote
+      currentQuote,
+      { quoteSource: 'live' }
     )
 
     expect(result.points).toEqual([
@@ -377,12 +378,114 @@ describe('syncHistoryWithCurrentQuote', () => {
     ])
   })
 
+  it('appends a newer live quote using its exact OHLC values', () => {
+    const currentQuote = resolveCurrentStockQuote(snapshot, [], {
+      ...detail,
+      price: 841.5,
+      open: 842,
+      high: 845,
+      low: 840,
+      volume: 12345,
+      timestamp: '2026-09-24T16:30:00.000-03:00',
+    })
+    const result = syncHistoryWithCurrentQuote(
+      [
+        {
+          date: '2026-09-23',
+          open: 850,
+          high: 855,
+          low: 848,
+          close: 852,
+        },
+      ],
+      currentQuote,
+      { quoteSource: 'live' }
+    )
+
+    expect(result.points).toEqual([
+      expect.objectContaining({ date: '2026-09-23', close: 852 }),
+      expect.objectContaining({
+        date: '2026-09-24',
+        open: 842,
+        high: 845,
+        low: 840,
+        close: 841.5,
+        volume: 12345,
+      }),
+    ])
+    expect(result.syncedQuote).toBe(true)
+  })
+
+  it('updates a same-day live quote without duplicating the market date', () => {
+    const currentQuote = resolveCurrentStockQuote(snapshot, [], {
+      ...detail,
+      price: 841.5,
+      open: 842,
+      high: 845,
+      low: 840,
+      timestamp: '2026-09-24T16:30:00.000-03:00',
+    })
+    const result = syncHistoryWithCurrentQuote(
+      [
+        { date: '2026-09-23', close: 852 },
+        {
+          date: '2026-09-24',
+          open: 843,
+          high: 844,
+          low: 841,
+          close: 843.5,
+        },
+      ],
+      currentQuote,
+      { quoteSource: 'live' }
+    )
+
+    expect(result.points).toHaveLength(2)
+    expect(result.points.at(-1)).toMatchObject({
+      date: '2026-09-24',
+      close: 841.5,
+    })
+  })
+
+  it('treats a timezone-less IOL timestamp as an Argentina market date', () => {
+    const currentQuote = resolveCurrentStockQuote(snapshot, [], {
+      ...detail,
+      timestamp: '2026-09-24T00:15:00.000',
+    })
+    const result = syncHistoryWithCurrentQuote(
+      [{ date: '2026-09-23', close: 7960 }],
+      currentQuote,
+      { quoteSource: 'live' }
+    )
+
+    expect(result.points.at(-1)?.date).toBe('2026-09-24')
+  })
+
+  it('does not append a live quote with an invalid local timestamp', () => {
+    const currentQuote = resolveCurrentStockQuote(snapshot, [], {
+      ...detail,
+      timestamp: '2026-09-24T25:15:00.000',
+    })
+    const history = [{ date: '2026-09-23', close: 7960 }]
+
+    expect(
+      syncHistoryWithCurrentQuote(history, currentQuote, {
+        quoteSource: 'live',
+      })
+    ).toEqual({
+      points: history,
+      syncedAt: null,
+      syncedQuote: false,
+    })
+  })
+
   it('updates the latest same-day point with the current snapshot price', () => {
     const currentQuote = resolveCurrentStockQuote(
       {
         ...snapshot,
         price: 994.5,
-        min: 990,
+        open: 991,
+        min: 989,
         max: 1000,
         quoteDate: '2026-06-24T20:00:00.000Z',
       },
@@ -407,13 +510,14 @@ describe('syncHistoryWithCurrentQuote', () => {
     })
   })
 
-  it('updates candle close and expands high/low with the current quote', () => {
+  it('updates a same-day candle with the exact current quote OHLC', () => {
     const currentQuote = resolveCurrentStockQuote(
       {
         ...snapshot,
         price: 1005,
+        open: 991,
         min: 988,
-        max: 1002,
+        max: 1005,
         quoteDate: '2026-06-24T20:00:00.000Z',
       },
       []
@@ -467,6 +571,35 @@ describe('syncHistoryWithCurrentQuote', () => {
       []
     )
     const history = [{ date: '2026-06-23', close: 980 }]
+
+    expect(syncHistoryWithCurrentQuote(history, currentQuote)).toEqual({
+      points: history,
+      syncedAt: null,
+      syncedQuote: false,
+    })
+  })
+
+  it('does not replace a same-day candle when the quote lacks OHLC data', () => {
+    const currentQuote = resolveCurrentStockQuote(
+      {
+        ...snapshot,
+        price: 994.5,
+        open: null,
+        min: null,
+        max: null,
+        quoteDate: '2026-06-24T20:00:00.000Z',
+      },
+      []
+    )
+    const history = [
+      {
+        date: '2026-06-24',
+        open: 991,
+        high: 1000,
+        low: 990,
+        close: 993.5,
+      },
+    ]
 
     expect(syncHistoryWithCurrentQuote(history, currentQuote)).toEqual({
       points: history,

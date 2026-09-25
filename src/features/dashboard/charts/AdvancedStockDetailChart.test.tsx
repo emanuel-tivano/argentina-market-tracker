@@ -47,6 +47,10 @@ class ResizeObserverMock {
   disconnect = vi.fn()
 }
 
+function timestamp(date: string) {
+  return Math.floor(Date.parse(date) / 1000)
+}
+
 const completeOhlcPoints = [
   {
     date: '2026-06-22',
@@ -120,6 +124,47 @@ describe('AdvancedStockDetailChart', () => {
     )
     expect(screen.queryByRole('status')).toBeNull()
     expect(chartMocks.fitContent).toHaveBeenCalled()
+  })
+
+  it('renders the synchronized current market date with exact quote OHLC', () => {
+    render(
+      <AdvancedStockDetailChart
+        symbol="ALUA"
+        points={[
+          {
+            date: '2026-09-23',
+            open: 850,
+            high: 855,
+            low: 848,
+            close: 852,
+          },
+          {
+            date: '2026-09-24',
+            open: 842,
+            high: 845,
+            low: 840,
+            close: 841.5,
+          },
+        ]}
+      />
+    )
+
+    expect(chartMocks.setData).toHaveBeenCalledWith([
+      expect.objectContaining({
+        time: timestamp('2026-09-23'),
+        open: 850,
+        high: 855,
+        low: 848,
+        close: 852,
+      }),
+      expect.objectContaining({
+        time: timestamp('2026-09-24'),
+        open: 842,
+        high: 845,
+        low: 840,
+        close: 841.5,
+      }),
+    ])
   })
 
   it('allows full DD/MM/YYYY labels on the time axis', () => {

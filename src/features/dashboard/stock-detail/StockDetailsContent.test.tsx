@@ -551,8 +551,8 @@ describe('StockDetailsContent variants', () => {
     ).toBe(true)
   })
 
-  it('adds a live session candle from CotizacionDetalle during market hours', () => {
-    vi.setSystemTime(new Date('2026-06-24T19:59:56.000Z'))
+  it('adds a newer live quote to the page chart independently of the wall-clock date', () => {
+    vi.setSystemTime(new Date('2026-06-25T19:59:56.000Z'))
 
     render(
       <StockDetailsContent
@@ -575,8 +575,8 @@ describe('StockDetailsContent variants', () => {
     ])
   })
 
-  it('adds today live quote to the modal chart after market close', () => {
-    vi.setSystemTime(new Date('2026-06-24T21:30:00.000Z'))
+  it('adds a newer live quote to the modal chart independently of the wall-clock date', () => {
+    vi.setSystemTime(new Date('2026-06-25T21:30:00.000Z'))
     quoteMocks.useStockQuote.mockReturnValue({
       quote: quoteDetail,
       source: 'live',
